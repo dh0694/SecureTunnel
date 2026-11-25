@@ -9,21 +9,32 @@ import (
 	"golang.zx2c4.com/wireguard/windows/tunnel/winipcfg"
 )
 
-// netFingerprint is the engine's NetFingerprint: the PC's own adapter
-// addresses, DNS suffixes, and preferred default routes.
+// preferredOfficeAdapter selects the active IPv4 route used by the ISP probe,
+// or the active IPv6 route on an IPv6-only network.
+func preferredOfficeAdapter() (string, int) {
+	if route, index, _ := preferredPhysicalRouteInfo(windows.AF_INET); index != 0 {
+		return route, index
+	}
+	route, index, _ := preferredPhysicalRouteInfo(windows.AF_INET6)
+	return route, index
+}
+
+// netFingerprint tracks the route Windows prefers and its office evidence.
+// Changes on secondary adapters should not restart VPN recovery.
 func netFingerprint() string {
-	ips := physicalIPs()
-	sfx := adapterDNSSuffixes()
+	route, index := preferredOfficeAdapter()
+	return officeNetworkFingerprint(route, index)
+}
+
+func officeNetworkFingerprint(route string, index int) string {
+	if index == 0 {
+		return ""
+	}
+	ips := physicalIPs(index)
+	sfx := adapterDNSSuffixes(index)
 	sort.Strings(ips)
 	sort.Strings(sfx)
-	fp := strings.Join(ips, ",") + "|" + strings.ToLower(strings.Join(sfx, ","))
-	if route, _ := preferredPhysicalRoute(windows.AF_INET); route != "" {
-		fp += "|v4=" + route
-	}
-	if route, _ := preferredPhysicalRoute(windows.AF_INET6); route != "" {
-		fp += "|v6=" + route
-	}
-	return fp
+	return route + "|" + strings.Join(ips, ",") + "|" + strings.ToLower(strings.Join(sfx, ","))
 }
 
 // physicalRouteAvailable reports whether Windows has an active default route

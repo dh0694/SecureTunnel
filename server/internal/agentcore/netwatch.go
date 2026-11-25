@@ -35,6 +35,8 @@ func (e *Engine) netCheck(ctx context.Context, last *string, changedAt *time.Tim
 	if fp != *last {
 		*last, *changedAt = fp, now // (re)start the settle wait on every change
 		e.mu.Lock()
+		// Reject any heartbeat that was already in flight on the old route.
+		e.netChangedAt = e.o.Now()
 		if e.sess != nil && !e.sess.Device && !e.standby && !e.busy {
 			e.vpnPhase = vpnChecking
 		}

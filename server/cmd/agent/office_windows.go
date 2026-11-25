@@ -52,12 +52,15 @@ func (a *agentService) officePolicy() model.OfficeNetworkPolicy {
 // officeProbe is the engine's TrustedProbe.
 func (a *agentService) officeProbe(ctx context.Context) (bool, string) {
 	pol := a.officePolicy()
-	var isp string
-	if a.ips != nil {
-		isp = a.ips.get().ISPIP
-	}
-	if ok, why := pol.Match(adapterDNSSuffixes(), physicalIPs(), isp); ok {
-		return true, why
+	route, index := preferredOfficeAdapter()
+	if index != 0 {
+		var isp string
+		if a.ips != nil && len(pol.PublicIPs) != 0 {
+			isp = a.ips.ispForNetwork(officeNetworkFingerprint(route, index))
+		}
+		if ok, why := pol.Match(adapterDNSSuffixes(index), physicalIPs(index), isp); ok {
+			return true, why
+		}
 	}
 	// Optional registry-configured HTTPS probe (only meaningful outside the tunnel).
 	if a.engine.Status().State == agentcore.StateDisconnected {
@@ -68,9 +71,8 @@ func (a *agentService) officeProbe(ctx context.Context) (bool, string) {
 	return false, ""
 }
 
-// adapterDNSSuffixes lists the connection-specific DNS suffixes of all
-// connected adapters except our tunnel.
-func adapterDNSSuffixes() []string {
+// adapterDNSSuffixes lists the selected adapter’s connection-specific suffix.
+func adapterDNSSuffixes(index int) []string {
 	size := uint32(16 << 10)
 	for attempt := 0; attempt < 3; attempt++ {
 		buf := make([]byte, size)
@@ -85,7 +87,7 @@ func adapterDNSSuffixes() []string {
 		}
 		var out []string
 		for p := aa; p != nil; p = p.Next {
-			if p.OperStatus != windows.IfOperStatusUp {
+			if p.OperStatus != windows.IfOperStatusUp || (int(p.IfIndex) != index && int(p.Ipv6IfIndex) != index) {
 				continue
 			}
 			if windows.UTF16PtrToString(p.FriendlyName) == tunnelName {
@@ -100,15 +102,15 @@ func adapterDNSSuffixes() []string {
 	return nil
 }
 
-// physicalIPs lists the IPv4 addresses of connected adapters except our tunnel.
-func physicalIPs() []string {
+// physicalIPs lists usable IPv4 addresses on the selected adapter.
+func physicalIPs(index int) []string {
 	ifcs, err := net.Interfaces()
 	if err != nil {
 		return nil
 	}
 	var out []string
 	for _, ifc := range ifcs {
-		if ifc.Flags&net.FlagUp == 0 || ifc.Flags&net.FlagLoopback != 0 || ifc.Name == tunnelName {
+		if ifc.Index != index || ifc.Flags&net.FlagUp == 0 || ifc.Flags&net.FlagLoopback != 0 || ifc.Name == tunnelName {
 			continue
 		}
 		addrs, _ := ifc.Addrs()

@@ -1266,6 +1266,8 @@ func (e *Engine) Tick(ctx context.Context) time.Duration {
 				e.tunnelPending = true
 				e.mu.Lock()
 				s.ConnectedSince = e.o.Now() // stats warm up again
+				e.setState(StateReconnecting, "")
+				e.vpnPhase = vpnChecking
 				e.mu.Unlock()
 			}
 		}
@@ -1295,6 +1297,10 @@ func (e *Engine) Tick(ctx context.Context) time.Duration {
 	case checkPath:
 		e.setVPNPhase(vpnChecking)
 		path = e.checkTunnelPath(ctx, s, pathFailureThreshold)
+	case st == StateReconnecting:
+		// A working data path is enough to restore the UI even while the
+		// control heartbeat is still waiting for a reply.
+		path = e.checkTunnelPath(ctx, s, 1)
 	default:
 		e.mu.Lock()
 		if e.vpnPhase == vpnWaitingForNetwork {

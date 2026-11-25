@@ -467,6 +467,20 @@ func TestTrafficRates(t *testing.T) {
 func TestArrivingAtOfficeGoesOnStandby(t *testing.T) {
 	r := newRig(t)
 	office := false
+	fingerprint := "hotspot"
+	r.e.o.NetFingerprint = func() string { return fingerprint }
+	last, pending := fingerprint, time.Time{}
+	ctx := context.Background()
+	roam := func(next string) {
+		fingerprint = next
+		r.advance(time.Second)
+		r.e.netCheck(ctx, &last, &pending, r.now)
+		r.advance(netSettle)
+		if !r.e.netCheck(ctx, &last, &pending, r.now) {
+			t.Fatalf("network change to %s did not trigger reevaluation", next)
+		}
+		r.e.Tick(ctx)
+	}
 	r.e.o.TrustedProbe = func(context.Context) (bool, string) {
 		if office {
 			return true, "DNS suffix cb-sisco.com"
@@ -479,9 +493,8 @@ func TestArrivingAtOfficeGoesOnStandby(t *testing.T) {
 	if r.e.Status().State != StateConnected {
 		t.Fatal("disconnected while away from the office")
 	}
-	office = true // laptop plugged in at the office
-	r.advance(30 * time.Second)
-	r.e.Tick(context.Background())
+	office = true
+	roam("office")
 	st := r.e.Status()
 	if st.State != StateConnected || !st.OfficeMode || r.tun.Running() || r.api.disconnects != 0 {
 		t.Fatalf("at the office: state=%s office_mode=%v tunnel=%v disconnects=%d", st.State, st.OfficeMode, r.tun.Running(), r.api.disconnects)
@@ -489,12 +502,42 @@ func TestArrivingAtOfficeGoesOnStandby(t *testing.T) {
 	if !st.OnTrustedNetwork || !strings.Contains(st.TrustedReason, "cb-sisco.com") {
 		t.Errorf("status = %+v", st)
 	}
-	office = false // laptop goes home
-	r.advance(30 * time.Second)
-	r.e.Tick(context.Background())
+	office = false
+	roam("hotspot")
 	st = r.e.Status()
 	if st.State != StateConnected || st.OfficeMode || !r.tun.Running() {
 		t.Fatalf("left the office: state=%s office_mode=%v tunnel=%v", st.State, st.OfficeMode, r.tun.Running())
+	}
+}
+
+func TestGatewayReplyClearsReconnectingBeforeHeartbeat(t *testing.T) {
+	r := newRig(t)
+	r.connect(t)
+	r.e.sess.Placement.Gateway.InsideIP = "10.200.0.1"
+	r.e.o.Ping = func(context.Context, netip.Addr, netip.Addr, time.Duration) (time.Duration, error) {
+		return time.Millisecond, nil
+	}
+	r.e.mu.Lock()
+	r.e.setState(StateReconnecting, "")
+	r.e.mu.Unlock()
+	entered, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	r.api.hbErr = func(bool) error {
+		close(entered)
+		<-release
+		return errNet
+	}
+	go func() {
+		defer close(done)
+		r.e.Tick(context.Background())
+	}()
+	defer func() { close(release); <-done }()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("heartbeat never started")
+	}
+	if st := r.e.Status(); st.State != StateConnected || st.VPNPhase != "" {
+		t.Fatalf("working tunnel still appears to be reconnecting: %+v", st)
 	}
 }
 

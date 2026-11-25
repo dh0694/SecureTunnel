@@ -46,6 +46,7 @@ type ipTracker struct {
 	mu         sync.Mutex
 	info       IPInfo
 	generation uint64
+	ispNetwork string
 	vpn, isp   ipLookup
 }
 
@@ -53,6 +54,15 @@ func (t *ipTracker) get() IPInfo {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.info
+}
+
+func (t *ipTracker) ispForNetwork(network string) string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if network == "" || t.ispNetwork != network {
+		return ""
+	}
+	return t.info.ISPIP
 }
 
 func (t *ipTracker) notify() {
@@ -65,7 +75,9 @@ func (t *ipTracker) notify() {
 func (t *ipTracker) invalidate() {
 	t.mu.Lock()
 	t.generation++
-	t.info = IPInfo{}
+	// Keep a verified ISP IP across tunnel-only changes. Office detection
+	// checks the physical network before trusting this value.
+	t.info.VPNIP = ""
 	for _, lookup := range []*ipLookup{&t.vpn, &t.isp} {
 		if lookup.cancel != nil {
 			lookup.cancel()
@@ -112,21 +124,27 @@ func (t *ipTracker) refresh(ctx context.Context) {
 		return
 	}
 	host := t.a.speed.policy().Host
+	network := netFingerprint()
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if generation != t.generation {
 		return
 	}
-	if vpn {
-		t.start(ctx, &t.vpn, &t.info.VPNIP, host, false)
+	if network == "" || t.ispNetwork != network {
+		t.info.ISPIP = ""
 	}
-	t.start(ctx, &t.isp, &t.info.ISPIP, host, running)
+	if vpn {
+		t.start(ctx, &t.vpn, &t.info.VPNIP, host, "", false)
+	}
+	if network != "" {
+		t.start(ctx, &t.isp, &t.info.ISPIP, host, network, running)
+	}
 }
 
 // start runs with mu held. The lookup's context and generation belong to one
 // route so completion can update only the field it actually measured.
-func (t *ipTracker) start(ctx context.Context, lookup *ipLookup, field *string, host string, bypass bool) {
+func (t *ipTracker) start(ctx context.Context, lookup *ipLookup, field *string, host, network string, bypass bool) {
 	if lookup.cancel != nil || time.Now().Before(lookup.next) {
 		return
 	}
@@ -144,6 +162,9 @@ func (t *ipTracker) start(ctx context.Context, lookup *ipLookup, field *string, 
 			ip, err = speedtest.PublicIP(ctx, client, host)
 		}
 
+		if network != "" && network != netFingerprint() {
+			ip = "" // The physical route changed while the request was running.
+		}
 		t.mu.Lock()
 		if generation != t.generation {
 			t.mu.Unlock()
@@ -156,7 +177,10 @@ func (t *ipTracker) start(ctx context.Context, lookup *ipLookup, field *string, 
 			lookup.next = now.Add(publicIPRetry)
 		} else {
 			lookup.next = now.Add(publicIPRefresh)
-			changed = ip != *field
+			if network != "" {
+				changed = ip != *field || network != t.ispNetwork
+				t.ispNetwork = network
+			}
 			*field = ip
 			t.info.CheckedAt = now
 		}
