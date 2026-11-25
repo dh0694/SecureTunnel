@@ -23,7 +23,8 @@
         connected_since: iso(2.3 * 3600e3), last_heartbeat: iso(8e3), latency_ms: 28, jitter_ms: 4, loss_pct: 2.5,
         session_expires: new Date(now + 9.7 * 3600e3).toISOString(), grace_left_sec: state === "reconnecting" ? 742 : 0,
         device_trust: { join_type: "Hybrid joined", compliant: true, entra_proven: true, entra_device_id: "6f1c2e8a-93b4-4d7e-8a21-0c5b9e3f7d14", device_cert: { ok: true }, passed: true },
-        latency_history: lat(), rate_history: rates(), rx_bps: 24.6e6, tx_bps: 3.9e6, rx_bytes: 1.87e9, tx_bytes: 312e6,
+        latency_history: lat(), rate_history: rates(), latency_source: "gateway",
+        latency_history_seconds: 1800, latency_latest_seconds: 0, loss_window_seconds: 300, rate_history_seconds: 60, rate_latest_seconds: 0, rx_bps: 24.6e6, tx_bps: 3.9e6, rx_bytes: 1.87e9, tx_bytes: 312e6,
       });
       if (state === "officemode") Object.assign(s, { office_mode: true, on_trusted_network: true, trusted_reason: "DNS suffix hq.cb-sisco.com", latency_ms: 0, rx_bps: 0, tx_bps: 0 });
     } else if (state === "office") {
@@ -32,7 +33,8 @@
       Object.assign(s, {
         state: "connected", gateway: "lab-gw", gateway_endpoint: "172.234.204.252:51820", tunnel_ip: "10.200.0.2", drops_recent: 4,
         connected_since: iso(40 * 60e3), last_heartbeat: iso(8e3), latency_ms: 96, jitter_ms: 41, loss_pct: 7.5,
-        session_expires: new Date(now + 11 * 3600e3).toISOString(), latency_history: lat(), rate_history: rates(), rx_bps: 2.1e6, tx_bps: 0.4e6,
+        session_expires: new Date(now + 11 * 3600e3).toISOString(), latency_history: lat(), rate_history: rates(), latency_source: "gateway",
+        latency_history_seconds: 1800, latency_latest_seconds: 0, loss_window_seconds: 300, rate_history_seconds: 60, rate_latest_seconds: 0, rx_bps: 2.1e6, tx_bps: 0.4e6,
         network: { adapter: "Wi-Fi", kind: "Wi-Fi", ssid: "HomeNet-5G", signal_pct: 34, link_mbps: 144 },
       });
     } else if (state === "duo") {

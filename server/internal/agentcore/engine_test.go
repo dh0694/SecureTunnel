@@ -795,3 +795,33 @@ func TestRoamingTriesLocalRepairBeforeMovingGateway(t *testing.T) {
 		t.Fatal("expected gateway failover after local repair and continued probe loss")
 	}
 }
+
+func TestStatusReportsGraphAndLossSampleAges(t *testing.T) {
+	r := newRig(t)
+	r.connect(t)
+	r.e.recordHB(20, r.now.Add(-35*time.Second))
+	r.e.recordHB(-1, r.now.Add(-5*time.Second))
+	r.e.rateHist = []RatePoint{
+		{start: r.now.Add(-12 * time.Second), end: r.now.Add(-11 * time.Second)},
+		{start: r.now.Add(-8 * time.Second), end: r.now.Add(-7 * time.Second)},
+	}
+	st := r.e.Status()
+	if st.RateHistorySeconds != 12 || st.RateLatestSeconds != 7 ||
+		st.LatencyHistorySeconds != 35 || st.LatencyLatestSeconds != 5 || st.LossWindowSeconds != 35 {
+		t.Fatalf("unexpected heartbeat and usage age metadata: %+v", st)
+	}
+
+	r.e.o.Ping = func(context.Context, netip.Addr, netip.Addr, time.Duration) (time.Duration, error) {
+		return time.Millisecond, nil
+	}
+	r.e.sess.Placement.Gateway.InsideIP = "10.200.0.1"
+	for i := 63; i > 0; i-- {
+		r.e.pingHist = append(r.e.pingHist, 20)
+		r.e.pingTimes = append(r.e.pingTimes, r.now.Add(-time.Duration(i)*pingEvery))
+	}
+	st = r.e.Status()
+	if st.LatencySource != "gateway" || st.LatencyHistorySeconds != 315 ||
+		st.LatencyLatestSeconds != 5 || st.LossWindowSeconds != 305 {
+		t.Fatalf("unexpected gateway age metadata: %+v", st)
+	}
+}

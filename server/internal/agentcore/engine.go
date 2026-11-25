@@ -52,8 +52,9 @@ type NetInfo struct {
 
 // RatePoint is one second of tunnel throughput.
 type RatePoint struct {
-	Rx float64 `json:"rx"` // bits per second
-	Tx float64 `json:"tx"`
+	Rx         float64   `json:"rx"` // bits per second
+	Tx         float64   `json:"tx"`
+	start, end time.Time // sampling interval for this rate
 }
 
 // TunnelConfig is everything needed to bring up the WireGuard tunnel.
@@ -142,18 +143,23 @@ type Status struct {
 	// Connection quality (latency of -1 means a failed check). With a gateway
 	// that has an inside address, these come from pinging it through the
 	// tunnel every few seconds; otherwise from heartbeats to the control server.
-	LatencyHistory []int   `json:"latency_history"` // 60 points over about 30 minutes
-	JitterMs       int     `json:"jitter_ms"`
-	LossPct        float64 `json:"loss_pct"`
-	LatencySource  string  `json:"latency_source"` // "gateway" or "control"
-	ControlMs      int     `json:"control_ms"`     // last heartbeat round trip to the control server
+	LatencyHistory        []int   `json:"latency_history"` // up to 60 plotted points
+	LatencyHistorySeconds int     `json:"latency_history_seconds"`
+	LatencyLatestSeconds  int     `json:"latency_latest_seconds"`
+	LossWindowSeconds     int     `json:"loss_window_seconds"`
+	JitterMs              int     `json:"jitter_ms"`
+	LossPct               float64 `json:"loss_pct"`
+	LatencySource         string  `json:"latency_source"` // "gateway" or "control"
+	ControlMs             int     `json:"control_ms"`     // last heartbeat round trip to the control server
 
 	// Tunnel traffic.
-	RxBps       float64     `json:"rx_bps"`
-	TxBps       float64     `json:"tx_bps"`
-	RxBytes     uint64      `json:"rx_bytes"`
-	TxBytes     uint64      `json:"tx_bytes"`
-	RateHistory []RatePoint `json:"rate_history"`
+	RxBps              float64     `json:"rx_bps"`
+	TxBps              float64     `json:"tx_bps"`
+	RxBytes            uint64      `json:"rx_bytes"`
+	TxBytes            uint64      `json:"tx_bytes"`
+	RateHistory        []RatePoint `json:"rate_history"`
+	RateHistorySeconds int         `json:"rate_history_seconds"`
+	RateLatestSeconds  int         `json:"rate_latest_seconds"`
 
 	Network NetInfo `json:"network"`
 
@@ -278,15 +284,16 @@ type Engine struct {
 	devFails   int
 	devLastLog string
 
-	hbHist   []int         // last 60 heartbeat latencies in ms, -1 = failed
-	pingHist []int         // gateway pings in ms, -1 = no reply (up to pingKeep)
-	ctrlRTT  time.Duration // last heartbeat round trip
-	rateHist []RatePoint
-	trafT    time.Time
-	trafRx   uint64
-	trafTx   uint64
-	rxBps    float64
-	txBps    float64
+	hbHist             []int         // last 60 heartbeat latencies in ms, -1 = failed
+	pingHist           []int         // gateway pings in ms, -1 = no reply (up to pingKeep)
+	hbTimes, pingTimes []time.Time   // sample times, kept aligned with their histories
+	ctrlRTT            time.Duration // last heartbeat round trip
+	rateHist           []RatePoint
+	trafT              time.Time
+	trafRx             uint64
+	trafTx             uint64
+	rxBps              float64
+	txBps              float64
 
 	wake chan struct{}
 }
@@ -342,10 +349,12 @@ func (e *Engine) tunnelDown() error {
 	return err
 }
 
-func (e *Engine) recordHB(ms int) {
+func (e *Engine) recordHB(ms int, now time.Time) {
+	e.hbTimes = append(e.hbTimes, now)
 	e.hbHist = append(e.hbHist, ms)
 	if len(e.hbHist) > histLen {
 		e.hbHist = e.hbHist[len(e.hbHist)-histLen:]
+		e.hbTimes = e.hbTimes[len(e.hbTimes)-histLen:]
 	}
 }
 
@@ -365,7 +374,7 @@ func (e *Engine) sampleTraffic(now time.Time) {
 		}
 		e.rxBps = float64(rx-e.trafRx) * 8 / dt
 		e.txBps = float64(tx-e.trafTx) * 8 / dt
-		e.rateHist = append(e.rateHist, RatePoint{Rx: e.rxBps, Tx: e.txBps})
+		e.rateHist = append(e.rateHist, RatePoint{Rx: e.rxBps, Tx: e.txBps, start: e.trafT, end: now})
 		if len(e.rateHist) > histLen {
 			e.rateHist = e.rateHist[len(e.rateHist)-histLen:]
 		}
@@ -401,7 +410,7 @@ func (e *Engine) pingLoop(ctx context.Context) {
 			now := e.o.Now()
 			source, ip = tunnelProbeAddresses(s)
 			if gw := s.Placement.Gateway.ID; gw != lastGW { // moved: start the figures fresh
-				e.pingHist, lastGW = nil, gw
+				e.pingHist, e.pingTimes, lastGW = nil, nil, gw
 				warmUntil = now.Add(statsWarmup)
 			}
 			// Right after connecting (or moving gateway) routes and the
@@ -428,8 +437,10 @@ func (e *Engine) pingLoop(ctx context.Context) {
 				}
 			}
 			e.pingHist = append(e.pingHist, ms)
+			e.pingTimes = append(e.pingTimes, e.o.Now())
 			if len(e.pingHist) > pingKeep {
 				e.pingHist = e.pingHist[len(e.pingHist)-pingKeep:]
+				e.pingTimes = e.pingTimes[len(e.pingTimes)-pingKeep:]
 			}
 		}
 		e.mu.Unlock()
@@ -446,7 +457,7 @@ func pingGraph(h []int) []int {
 		return append([]int(nil), h...)
 	}
 	per := (len(h) + histLen - 1) / histLen
-	h = h[len(h)%per:] // drop the oldest partial bucket
+	h = h[pingGraphOffset(len(h)):] // drop the oldest partial bucket
 	out := make([]int, 0, histLen)
 	for i := 0; i < len(h); i += per {
 		sum, n := 0, 0
@@ -465,8 +476,21 @@ func pingGraph(h []int) []int {
 	return out
 }
 
+// pingGraphOffset is the number of oldest samples dropped by pingGraph.
+func pingGraphOffset(count int) int {
+	return count % max(1, (count+histLen-1)/histLen)
+}
+
+func secondsSince(now, then time.Time) int {
+	if then.IsZero() {
+		return 0
+	}
+	return max(0, int(now.Sub(then).Round(time.Second)/time.Second))
+}
+
 func (e *Engine) resetStats() {
 	e.hbHist, e.rateHist, e.pingHist, e.ctrlRTT = nil, nil, nil, 0
+	e.hbTimes, e.pingTimes = nil, nil
 	e.trafT, e.trafRx, e.trafTx, e.rxBps, e.txBps = time.Time{}, 0, 0, 0, 0
 }
 
@@ -607,7 +631,8 @@ func (e *Engine) Status() Status {
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.sampleTraffic(e.o.Now())
+	now := e.o.Now()
+	e.sampleTraffic(now)
 	inUse := e.server
 	if a, ok := e.api.(interface{ Active() string }); ok && a.Active() != "" {
 		inUse = a.Active()
@@ -622,10 +647,23 @@ func (e *Engine) Status() Status {
 		LatencySource: "control", ControlMs: int(e.ctrlRTT / time.Millisecond),
 	}
 	st.JitterMs, st.LossPct = quality(e.hbHist)
+	if len(e.rateHist) > 0 {
+		st.RateHistorySeconds = secondsSince(now, e.rateHist[0].start)
+		st.RateLatestSeconds = secondsSince(now, e.rateHist[len(e.rateHist)-1].end)
+	}
+	if len(e.hbTimes) > 0 {
+		st.LatencyHistorySeconds = secondsSince(now, e.hbTimes[0])
+		st.LatencyLatestSeconds = secondsSince(now, e.hbTimes[len(e.hbTimes)-1])
+		st.LossWindowSeconds = st.LatencyHistorySeconds
+	}
 	if e.pinging(e.sess) && len(e.pingHist) > 0 {
 		st.LatencySource = "gateway"
 		st.LatencyHistory = pingGraph(e.pingHist)
-		st.JitterMs, st.LossPct = quality(e.pingHist[max(0, len(e.pingHist)-pingWindow):])
+		lossStart := max(0, len(e.pingHist)-pingWindow)
+		st.JitterMs, st.LossPct = quality(e.pingHist[lossStart:])
+		st.LatencyHistorySeconds = secondsSince(now, e.pingTimes[pingGraphOffset(len(e.pingTimes))].Add(-pingEvery))
+		st.LatencyLatestSeconds = secondsSince(now, e.pingTimes[len(e.pingTimes)-1])
+		st.LossWindowSeconds = secondsSince(now, e.pingTimes[lossStart].Add(-pingEvery))
 	}
 	if e.sess != nil && !e.trafT.IsZero() {
 		st.RxBytes, st.TxBytes = e.trafRx, e.trafTx
@@ -1246,7 +1284,7 @@ func (e *Engine) Tick(ctx context.Context) time.Duration {
 		e.lastHB, e.ctrlRTT = now, rtt
 		if !e.pinging(s) && now.Sub(s.ConnectedSince) >= statsWarmup {
 			e.latency = rtt
-			e.recordHB(int(rtt / time.Millisecond))
+			e.recordHB(int(rtt/time.Millisecond), now)
 		}
 		if tunnelReady && path != pathDown && (route || path == pathWorking || e.standby) {
 			e.setState(StateConnected, "")
@@ -1310,7 +1348,7 @@ func (e *Engine) Tick(ctx context.Context) time.Duration {
 	}
 	e.mu.Lock()
 	if !e.pinging(s) && now.Sub(s.ConnectedSince) >= statsWarmup {
-		e.recordHB(-1)
+		e.recordHB(-1, now)
 	}
 	// Only show "Reconnecting" once contact has been lost for a while: one
 	// slow or failed check (e.g. while routes settle) isn't worth alarming anyone.

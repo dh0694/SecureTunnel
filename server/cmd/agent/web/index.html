@@ -99,13 +99,15 @@
           <div id="m-lat-box" title="Round trip through the tunnel to your gateway; under 80 ms is typical. Jitter is how much it varies: high jitter makes calls choppy."><div class="k">Latency</div><div class="v" id="m-lat">–</div><div class="sub" id="m-jit"></div></div>
           <div title="Downloaded through the VPN since you connected"><div class="k">Downloaded</div><div class="v" id="conn-down">–</div></div>
           <div title="Uploaded through the VPN since you connected"><div class="k">Uploaded</div><div class="v" id="conn-up">–</div></div>
-          <div title="Percentage of recent connection checks that received no reply"><div class="k">Loss</div><div class="v" id="m-loss">–</div></div>
+          <div id="m-loss-box" title="Percentage of recent VPN gateway pings that received no reply"><div class="k" id="m-loss-label">Packet loss</div><div class="v" id="m-loss">–</div><div class="sub" id="m-loss-period"></div></div>
         </div>
         <div class="conn-mini">
-          <div id="sp-total" title="Blue: receiving. Green: sending."><div class="cap">Usage · last 60 s</div>
-            <svg id="sp-chart" class="chart" viewBox="0 0 300 64" preserveAspectRatio="none"></svg></div>
-          <div title="Round trip to your gateway through the tunnel. Red marks pings with no reply."><div class="cap">Latency · last 30 min</div>
-            <svg id="lat-chart" class="chart small-chart" viewBox="0 0 300 40" preserveAspectRatio="none"></svg></div>
+          <div id="sp-total" title="Blue: receiving. Green: sending."><div class="cap">VPN usage</div>
+            <svg id="sp-chart" class="chart" viewBox="0 0 300 64" preserveAspectRatio="none"></svg>
+            <div class="chart-axis"><span id="sp-oldest"></span><span id="sp-latest"></span></div></div>
+          <div id="lat-total" title="Round trip to your gateway through the tunnel. Red marks samples with no reply."><div class="cap" id="lat-caption">VPN latency</div>
+            <svg id="lat-chart" class="chart small-chart" viewBox="0 0 300 40" preserveAspectRatio="none"></svg>
+            <div class="chart-axis"><span id="lat-oldest"></span><span id="lat-latest"></span></div></div>
         </div>
       </div>
 
