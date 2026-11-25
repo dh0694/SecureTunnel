@@ -86,22 +86,41 @@
       <div id="st-office" class="banner office hidden" role="status"><b>You're on the office network</b><span id="st-office-text"></span></div>
       <p id="st-owner" class="banner warn hidden" role="status"></p>
       <div class="card conn" id="st-conn">
-        <div class="conn-head"><span class="strong">Connection</span><span class="pill" id="q-pill"></span></div>
-        <div class="conn-grid">
-          <div title="What this PC is receiving right now, not its top speed"><div class="k"><span class="sw down"></span>Receiving</div><div class="v" id="sp-down">–</div></div>
-          <div title="What this PC is sending right now, not its top speed"><div class="k"><span class="sw up"></span>Sending</div><div class="v" id="sp-up">–</div></div>
-          <div id="m-lat-box" title="Round trip through the tunnel to your gateway; under 80 ms is typical. Jitter is how much it varies: high jitter makes calls choppy."><div class="k">Latency</div><div class="v" id="m-lat">–</div><div class="sub" id="m-jit"></div></div>
-          <div title="Downloaded through the VPN since you connected"><div class="k">Downloaded</div><div class="v" id="conn-down">–</div></div>
-          <div title="Uploaded through the VPN since you connected"><div class="k">Uploaded</div><div class="v" id="conn-up">–</div></div>
-          <div id="m-loss-box" title="Percentage of recent VPN gateway pings that received no reply"><div class="k" id="m-loss-label">Packet loss</div><div class="v" id="m-loss">–</div><div class="sub" id="m-loss-period"></div></div>
+        <div class="conn-head">
+          <span class="strong">Connection</span>
+          <div class="conn-loss" id="m-loss-box" title="Percentage of recent VPN gateway pings that received no reply">
+            <span id="m-loss-label">Packet loss</span><strong id="m-loss">–</strong><span id="m-loss-period"></span>
+          </div>
+          <span class="pill" id="q-pill"></span>
         </div>
         <div class="conn-mini">
-          <div id="sp-total" title="Blue: receiving. Green: sending."><div class="cap">VPN usage</div>
+          <div id="sp-total" title="Blue shows download speed. Green shows upload speed."><div class="cap">VPN bandwidth</div>
             <svg id="sp-chart" class="chart" viewBox="0 0 300 64" preserveAspectRatio="none"></svg>
-            <div class="chart-axis"><span id="sp-oldest"></span><span id="sp-latest"></span></div></div>
-          <div id="lat-total" title="Round trip to your gateway through the tunnel. Red marks samples with no reply."><div class="cap" id="lat-caption">VPN latency</div>
+            <div class="chart-axis"><span id="sp-oldest"></span><span id="sp-latest"></span></div>
+            <div class="chart-readings">
+              <div title="Current download speed through the VPN">
+                <span class="chart-reading-label"><span class="sw down" aria-hidden="true"></span>Download</span>
+                <strong id="sp-down">–</strong>
+              </div>
+              <div title="Current upload speed through the VPN">
+                <span class="chart-reading-label"><span class="sw up" aria-hidden="true"></span>Upload</span>
+                <strong id="sp-up">–</strong>
+              </div>
+            </div></div>
+          <div id="lat-total"><div class="cap" id="lat-caption">Latency</div>
             <svg id="lat-chart" class="chart small-chart" viewBox="0 0 300 40" preserveAspectRatio="none"></svg>
-            <div class="chart-axis"><span id="lat-oldest"></span><span id="lat-latest"></span></div></div>
+            <div class="chart-axis"><span id="lat-oldest"></span><span id="lat-latest"></span></div>
+            <div class="chart-readings">
+              <div>
+                <span class="chart-reading-label"><span class="sw down hidden" id="lat-key-gateway" aria-hidden="true"></span>Gateway</span>
+                <strong id="m-lat">–</strong>
+                <span class="chart-reading-detail" id="m-jit"></span>
+              </div>
+              <div>
+                <span class="chart-reading-label"><span class="sw latency-control hidden" id="lat-key-control" aria-hidden="true"></span>Control server</span>
+                <strong id="m-control-lat">–</strong>
+              </div>
+            </div></div>
         </div>
       </div>
 
@@ -120,6 +139,8 @@
         <div class="kv"><div class="k">Tunnel IP</div><div class="v mono" id="st-ip"></div></div>
         <div class="kv"><div class="k">Public IP (VPN)</div><div class="v mono" id="st-vpnip">–</div></div>
         <div class="kv"><div class="k">Your ISP's IP</div><div class="v mono" id="st-ispip">–</div></div>
+        <div class="kv" id="conn-down-total" title="Data downloaded through the current VPN tunnel"><div class="k">VPN downloaded</div><div class="v" id="conn-down">–</div></div>
+        <div class="kv" id="conn-up-total" title="Data uploaded through the current VPN tunnel"><div class="k">VPN uploaded</div><div class="v" id="conn-up">–</div></div>
         <div class="kv" id="st-trust-wrap" title="The certificate this PC presented when you connected, if IT requires one."><div class="k">Certificate</div><div class="v" id="st-trust">–</div></div>
       </div>
 

@@ -117,6 +117,12 @@ type Store interface {
 	Clear() error
 }
 
+// LatencySample is a timestamped reply, or a failed probe when MS is negative.
+type LatencySample struct {
+	At time.Time `json:"at"`
+	MS int       `json:"ms"`
+}
+
 // Status is the snapshot the GUI shows.
 type Status struct {
 	State            State     `json:"state"`
@@ -143,14 +149,18 @@ type Status struct {
 	// Connection quality (latency of -1 means a failed check). With a gateway
 	// that has an inside address, these come from pinging it through the
 	// tunnel every few seconds; otherwise from heartbeats to the control server.
-	LatencyHistory        []int   `json:"latency_history"` // up to 60 plotted points
-	LatencyHistorySeconds int     `json:"latency_history_seconds"`
-	LatencyLatestSeconds  int     `json:"latency_latest_seconds"`
-	LossWindowSeconds     int     `json:"loss_window_seconds"`
-	JitterMs              int     `json:"jitter_ms"`
-	LossPct               float64 `json:"loss_pct"`
-	LatencySource         string  `json:"latency_source"` // "gateway" or "control"
-	ControlMs             int     `json:"control_ms"`     // last heartbeat round trip to the control server
+	LatencyHistory        []int           `json:"latency_history"` // up to 60 plotted points
+	LatencyHistorySeconds int             `json:"latency_history_seconds"`
+	LatencyLatestSeconds  int             `json:"latency_latest_seconds"`
+	LossWindowSeconds     int             `json:"loss_window_seconds"`
+	JitterMs              int             `json:"jitter_ms"`
+	JitterMeasured        bool            `json:"jitter_measured"`
+	LossPct               float64         `json:"loss_pct"`
+	LatencySource         string          `json:"latency_source"` // "gateway" or "control"
+	ControlMs             int             `json:"control_ms"`     // last heartbeat round trip to the control server
+	GatewayMs             int             `json:"gateway_ms"`     // last successful recent ping through the tunnel
+	GatewayLatencyHistory []LatencySample `json:"gateway_latency_history"`
+	ControlLatencyHistory []LatencySample `json:"control_latency_history"`
 
 	// Tunnel traffic.
 	RxBps              float64     `json:"rx_bps"`
@@ -224,14 +234,13 @@ type Options struct {
 	Ping func(ctx context.Context, source, ip netip.Addr, timeout time.Duration) (time.Duration, error)
 }
 
-// Gateway pings: jitter uses the last 60 samples, packet loss uses the last
-// 30 seconds, and the graph keeps up to 30 minutes.
+// Gateway pings: jitter and packet loss use the last 30 seconds, and the
+// graph keeps up to 30 minutes.
 const (
-	pingEvery   = 5 * time.Second
-	pingWindow  = 60
-	lossWindow  = 30 * time.Second
-	pingKeep    = 360
-	pingTimeout = 2 * time.Second
+	pingEvery     = 5 * time.Second
+	qualityWindow = 30 * time.Second
+	pingKeep      = 360
+	pingTimeout   = 2 * time.Second
 	// statsWarmup is how long after connecting (or changing gateway) before
 	// latency, jitter and loss are measured.
 	statsWarmup = 5 * time.Second
@@ -357,6 +366,14 @@ func (e *Engine) recordHB(ms int, now time.Time) {
 		e.hbHist = e.hbHist[len(e.hbHist)-histLen:]
 		e.hbTimes = e.hbTimes[len(e.hbTimes)-histLen:]
 	}
+}
+
+func (e *Engine) recordControlCheck(now time.Time, rtt time.Duration, err error) {
+	sample := -1
+	if err == nil {
+		sample = max(1, int(rtt/time.Millisecond))
+	}
+	e.recordHB(sample, now)
 }
 
 // sampleTraffic updates throughput from the adapter counters (called with mu held).
@@ -495,10 +512,28 @@ func (e *Engine) resetStats() {
 	e.trafT, e.trafRx, e.trafTx, e.rxBps, e.txBps = time.Time{}, 0, 0, 0, 0
 }
 
-// quality computes jitter and loss from the heartbeat history.
-func quality(h []int) (jitter int, loss float64) {
+// recentSampleStart excludes checks at or before the rolling window cutoff.
+func recentSampleStart(times []time.Time, cutoff time.Time) int {
+	start := len(times)
+	for start > 0 && times[start-1].After(cutoff) {
+		start--
+	}
+	return start
+}
+
+func latencySamples(values []int, times []time.Time, cutoff time.Time) []LatencySample {
+	start := recentSampleStart(times, cutoff)
+	out := make([]LatencySample, 0, len(times)-start)
+	for i := start; i < len(times); i++ {
+		out = append(out, LatencySample{At: times[i], MS: values[i]})
+	}
+	return out
+}
+
+// quality computes jitter from consecutive replies and loss from all checks.
+func quality(h []int) (jitter int, loss float64, jitterMeasured bool) {
 	if len(h) == 0 {
-		return 0, 0
+		return 0, 0, false
 	}
 	var fails, n, sum int
 	prev := -1
@@ -521,7 +556,7 @@ func quality(h []int) (jitter int, loss float64) {
 	if n > 0 {
 		jitter = sum / n
 	}
-	return jitter, float64(fails) * 100 / float64(len(h))
+	return jitter, float64(fails) * 100 / float64(len(h)), n > 0
 }
 
 // SetServer sets the control server (already normalized). locked means it
@@ -647,7 +682,12 @@ func (e *Engine) Status() Status {
 		RxBps:          e.rxBps, TxBps: e.txBps,
 		LatencySource: "control", ControlMs: int(e.ctrlRTT / time.Millisecond),
 	}
-	st.JitterMs, st.LossPct = quality(e.hbHist)
+	historyCutoff := now.Add(-30 * time.Minute)
+	cutoff := now.Add(-qualityWindow)
+	st.ControlLatencyHistory = latencySamples(e.hbHist, e.hbTimes, historyCutoff)
+	st.GatewayLatencyHistory = latencySamples(e.pingHist, e.pingTimes, historyCutoff)
+	_, st.LossPct, _ = quality(e.hbHist)
+	st.JitterMs, _, st.JitterMeasured = quality(e.hbHist[recentSampleStart(e.hbTimes, cutoff):])
 	if len(e.rateHist) > 0 {
 		st.RateHistorySeconds = secondsSince(now, e.rateHist[0].start)
 		st.RateLatestSeconds = secondsSince(now, e.rateHist[len(e.rateHist)-1].end)
@@ -660,18 +700,19 @@ func (e *Engine) Status() Status {
 	if e.pinging(e.sess) && len(e.pingHist) > 0 {
 		st.LatencySource = "gateway"
 		st.LatencyHistory = pingGraph(e.pingHist)
-		st.JitterMs, _ = quality(e.pingHist[max(0, len(e.pingHist)-pingWindow):])
 		st.LatencyHistorySeconds = secondsSince(now, e.pingTimes[pingGraphOffset(len(e.pingTimes))].Add(-pingEvery))
 		st.LatencyLatestSeconds = secondsSince(now, e.pingTimes[len(e.pingTimes)-1])
-		cutoff := now.Add(-lossWindow)
-		lossStart := len(e.pingTimes)
-		for lossStart > 0 && e.pingTimes[lossStart-1].After(cutoff) {
-			lossStart--
+		start := recentSampleStart(e.pingTimes, cutoff)
+		st.JitterMs, st.LossPct, st.JitterMeasured = quality(e.pingHist[start:])
+		for i := len(e.pingHist) - 1; i >= start; i-- {
+			if e.pingHist[i] >= 0 {
+				st.GatewayMs = max(1, e.pingHist[i])
+				break
+			}
 		}
-		st.LossPct, st.LossWindowSeconds = 0, 0
-		if lossStart < len(e.pingTimes) {
-			_, st.LossPct = quality(e.pingHist[lossStart:])
-			st.LossWindowSeconds = min(int(lossWindow/time.Second), secondsSince(now, e.pingTimes[lossStart].Add(-pingEvery)))
+		st.LossWindowSeconds = 0
+		if start < len(e.pingTimes) {
+			st.LossWindowSeconds = min(int(qualityWindow/time.Second), secondsSince(now, e.pingTimes[start].Add(-pingEvery)))
 		}
 	}
 	if e.sess != nil && !e.trafT.IsZero() {
@@ -1274,6 +1315,11 @@ func (e *Engine) Tick(ctx context.Context) time.Duration {
 		return time.Second
 	}
 	now := e.o.Now()
+	if !clientapi.IsReauth(err) && now.Sub(s.ConnectedSince) >= statsWarmup {
+		e.mu.Lock()
+		e.recordControlCheck(now, rtt, err)
+		e.mu.Unlock()
+	}
 	switch {
 	case err == nil:
 		e.acceptCommands(s, p.Commands, sent)
@@ -1299,7 +1345,6 @@ func (e *Engine) Tick(ctx context.Context) time.Duration {
 		e.lastHB, e.ctrlRTT = now, rtt
 		if !e.pinging(s) && now.Sub(s.ConnectedSince) >= statsWarmup {
 			e.latency = rtt
-			e.recordHB(int(rtt/time.Millisecond), now)
 		}
 		if tunnelReady && path != pathDown && (route || path == pathWorking || e.standby) {
 			e.setState(StateConnected, "")
@@ -1362,9 +1407,6 @@ func (e *Engine) Tick(ctx context.Context) time.Duration {
 		return 30 * time.Second
 	}
 	e.mu.Lock()
-	if !e.pinging(s) && now.Sub(s.ConnectedSince) >= statsWarmup {
-		e.recordHB(-1, now)
-	}
 	// Only show "Reconnecting" once contact has been lost for a while: one
 	// slow or failed check (e.g. while routes settle) isn't worth alarming anyone.
 	// After a network change, say so (it's expected) and show it right away.
@@ -1412,8 +1454,13 @@ func (e *Engine) recover(ctx context.Context, s *Session) {
 	restore := func() { e.repairTunnel(s) }
 
 	hctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	observed, _, sent, err := e.heartbeat(hctx, api, s, nil)
+	observed, rtt, sent, err := e.heartbeat(hctx, api, s, nil)
 	cancel()
+	if !clientapi.IsReauth(err) {
+		e.mu.Lock()
+		e.recordControlCheck(e.o.Now(), rtt, err)
+		e.mu.Unlock()
+	}
 	switch {
 	case clientapi.IsReauth(err):
 		e.teardown("Your session ended. Sign in again to reconnect.")
@@ -1428,7 +1475,7 @@ func (e *Engine) recover(ctx context.Context, s *Session) {
 	// is checked separately when the assignment is running again.
 	e.mu.Lock()
 	s.LastOK = e.o.Now()
-	e.lastHB = s.LastOK
+	e.lastHB, e.ctrlRTT = s.LastOK, rtt
 	if !observed.ExpiresAt.IsZero() {
 		s.Placement.ExpiresAt = observed.ExpiresAt
 	}
@@ -1467,6 +1514,9 @@ func (e *Engine) updatePlacement(s *Session, p clientapi.Placement) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	oldConfig := tunnelConfig(s.PrivateKey, s.Placement).WGQuick()
+	if old := s.Placement.Gateway; old.ID != p.Gateway.ID || old.InsideIP != p.Gateway.InsideIP {
+		e.pingHist, e.pingTimes = nil, nil
+	}
 	s.Placement.Gateway = p.Gateway
 	s.Placement.Alternates = p.Alternates
 	s.Placement.SpeedTest = p.SpeedTest

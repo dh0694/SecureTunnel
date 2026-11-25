@@ -21,6 +21,7 @@ type fakeAPI struct {
 	needCode    bool
 	connects    int
 	gw          string
+	insideIP    string
 	hbErr       func(tunnelUp bool) error // nil: success
 	failoverErr error
 	failovers   int
@@ -64,7 +65,7 @@ func (f *fakeAPI) Heartbeat(_ context.Context, _, _, _ string, d *clientapi.Diag
 	f.lastDiag = d
 	f.mu.Unlock()
 	f.mu.Lock()
-	fn, gw := f.hbErr, f.gw
+	fn, gw, insideIP := f.hbErr, f.gw, f.insideIP
 	f.mu.Unlock()
 	if fn != nil {
 		if err := fn(f.tun.Running()); err != nil {
@@ -72,6 +73,7 @@ func (f *fakeAPI) Heartbeat(_ context.Context, _, _, _ string, d *clientapi.Diag
 		}
 	}
 	p := placement(gw)
+	p.Gateway.InsideIP = insideIP
 	f.mu.Lock()
 	p.Commands, f.cmds = f.cmds, nil
 	f.mu.Unlock()
@@ -433,7 +435,7 @@ func TestWatchSignalTearsDownImmediately(t *testing.T) {
 }
 
 func TestQualityStats(t *testing.T) {
-	jitter, loss := quality([]int{20, 30, -1, 25, 25})
+	jitter, loss, _ := quality([]int{20, 30, -1, 25, 25})
 	if jitter != 5 || loss != 20 {
 		t.Errorf("jitter=%d loss=%v, want 5 and 20", jitter, loss)
 	}
@@ -850,22 +852,70 @@ func TestReturningToWiFiGetsNewLocalRepair(t *testing.T) {
 	}
 }
 
-func TestGatewayPacketLossUsesOnlyLast30Seconds(t *testing.T) {
+func TestGatewayQualityUsesOnlyLast30Seconds(t *testing.T) {
 	r := newRig(t)
 	r.connect(t)
 	r.e.o.Ping = func(context.Context, netip.Addr, netip.Addr, time.Duration) (time.Duration, error) {
 		return time.Millisecond, nil
 	}
 	r.e.sess.Placement.Gateway.InsideIP = "10.200.0.1"
-	r.e.pingHist = []int{-1, -1, -1, 20, 30}
+	r.e.ctrlRTT = 85 * time.Millisecond
+	r.e.pingHist = []int{500, 100, -1, 20, 30}
 	for _, age := range []time.Duration{60, 30, 20, 11, 4} {
 		r.e.pingTimes = append(r.e.pingTimes, r.now.Add(-age*time.Second))
 	}
-	if st := r.e.Status(); st.LossWindowSeconds != 25 || st.LossPct < 33 || st.LossPct > 34 {
-		t.Fatalf("expected one missed ping among the three in the window, got %.2f%% across %ds", st.LossPct, st.LossWindowSeconds)
+	st := r.e.Status()
+	if st.LossWindowSeconds != 25 || st.LossPct < 33 || st.LossPct > 34 ||
+		!st.JitterMeasured || st.JitterMs != 10 {
+		t.Fatalf("expected 10ms jitter and one lost ping among the three recent pings: %+v", st)
+	}
+	if st.GatewayMs != 30 || st.ControlMs != 85 {
+		t.Fatalf("gateway and control readings got mixed: %+v", st)
 	}
 	r.advance(30 * time.Second)
-	if st := r.e.Status(); st.LossWindowSeconds != 0 {
-		t.Fatalf("stale gateway pings still supply a loss measurement: %+v", st)
+	if st := r.e.Status(); st.LossWindowSeconds != 0 || st.JitterMeasured || st.GatewayMs != 0 || st.ControlMs != 85 {
+		t.Fatalf("stale gateway pings still supply a quality measurement: %+v", st)
+	}
+}
+
+func TestHeartbeatJitterRequiresRecentConsecutiveReplies(t *testing.T) {
+	r := newRig(t)
+	r.connect(t)
+	r.e.recordHB(90, r.now.Add(-40*time.Second))
+	r.e.recordHB(15, r.now.Add(-20*time.Second))
+	if st := r.e.Status(); st.JitterMeasured {
+		t.Fatalf("one recent heartbeat should not produce jitter: %+v", st)
+	}
+	r.e.recordHB(15, r.now.Add(-5*time.Second))
+	if st := r.e.Status(); !st.JitterMeasured || st.JitterMs != 0 {
+		t.Fatalf("two identical recent replies should report zero jitter: %+v", st)
+	}
+}
+
+func TestActiveGatewayAndControlChecksHaveSeparateHistories(t *testing.T) {
+	r := newRig(t)
+	r.connect(t)
+	r.api.insideIP = "10.200.0.1"
+	r.e.sess.Placement.Gateway.InsideIP = r.api.insideIP
+	r.e.o.Ping = func(context.Context, netip.Addr, netip.Addr, time.Duration) (time.Duration, error) {
+		return 51 * time.Millisecond, nil
+	}
+	r.advance(31 * time.Second)
+	r.e.pingHist = []int{12, 51}
+	r.e.pingTimes = []time.Time{r.now.Add(-31 * time.Minute), r.now.Add(-2 * time.Second)}
+	r.e.Tick(context.Background())
+	r.api.hbErr = func(bool) error { return errNet }
+	r.advance(5 * time.Second)
+	r.e.Kick()
+	r.e.Tick(context.Background())
+
+	st := r.e.Status()
+	if len(st.GatewayLatencyHistory) != 1 || st.GatewayLatencyHistory[0].MS != 51 ||
+		!st.GatewayLatencyHistory[0].At.Equal(r.now.Add(-7*time.Second)) {
+		t.Fatalf("unexpected gateway samples: %+v", st.GatewayLatencyHistory)
+	}
+	if len(st.ControlLatencyHistory) != 2 || st.ControlLatencyHistory[0].MS != 20 ||
+		st.ControlLatencyHistory[1].MS != -1 || !st.ControlLatencyHistory[1].At.Equal(r.now) {
+		t.Fatalf("expected a recorded heartbeat and timeout: %+v", st.ControlLatencyHistory)
 	}
 }

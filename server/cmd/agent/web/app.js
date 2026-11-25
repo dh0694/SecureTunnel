@@ -302,6 +302,8 @@ function renderStatus(st) {
   const office = !!st.office_mode && !rec;
   $("st-office").classList.toggle("hidden", !office);
   $("st-conn").classList.toggle("hidden", office);
+  $("conn-down-total").classList.toggle("hidden", office);
+  $("conn-up-total").classList.toggle("hidden", office);
   if (office) {
     $("st-dot").className = "dot info";
     $("st-dot").querySelector("use").setAttribute("href", "#i-building");
@@ -331,33 +333,36 @@ function renderStatus(st) {
   renderChartAxis("sp", chartData.rates, true, 2);
   const peakRx = rates.reduce((m, p) => Math.max(m, p.rx), 0);
   const peakTx = rates.reduce((m, p) => Math.max(m, p.tx), 0);
-  $("sp-total").title = (peakRx || peakTx ? "Peak shown: receiving " + fmtBps(peakRx) + ", sending " + fmtBps(peakTx) + ". " : "") +
-    "Blue: receiving. Green: sending.";
+  $("sp-total").title = (peakRx || peakTx ? "Peak download " + fmtBps(peakRx) + ", peak upload " + fmtBps(peakTx) + ". " : "") +
+    "Blue shows download speed. Green shows upload speed.";
 
   // Quality
   const latency = st.latency_history || [];
   const lat = latency.filter((v) => v >= 0);
   const serverChecks = latency.length > 0 && st.latency_source === "control";
   const unknownSource = latency.length > 0 && !st.latency_source;
-  $("lat-caption").textContent = serverChecks ? "Server latency" : unknownSource ? "Latency" : "VPN latency";
-  const latencyDescription = serverChecks ? "Round trip to the control server." : unknownSource
-    ? "Round trip for recent connection checks." : "Round trip to your VPN gateway through the tunnel.";
-  $("lat-total").title = latencyDescription + " Red marks samples with no reply.";
-  $("m-lat-box").title = latencyDescription;
-  const latest = $("m-lat"), jitter = $("m-jit"), loss = $("m-loss");
-  const latencyMs = !rec && st.latency_ms > 0 ? st.latency_ms : 0;
-  const hasJitter = !rec && lat.length > 1 && Number.isFinite(st.jitter_ms);
+  const gatewayDescription = "Last successful ping to the assigned gateway through your VPN tunnel.";
+  const serverDescription = "Last successful HTTPS heartbeat to the control server.";
+  const latest = $("m-lat"), control = $("m-control-lat"), jitter = $("m-jit"), loss = $("m-loss");
+  const gatewayMs = !rec ? st.gateway_ms ?? (st.latency_source === "gateway" ? st.latency_ms : 0) : 0;
+  const controlMs = !rec ? st.control_ms ?? (serverChecks ? st.latency_ms : 0) : 0;
+  const hasJitter = !rec && st.latency_source === "gateway" && (st.jitter_measured ?? (lat.length > 1)) && Number.isFinite(st.jitter_ms);
   const hasLoss = latency.length > 0 && Number.isFinite(st.loss_pct) &&
     (st.latency_source !== "gateway" || st.loss_window_seconds !== 0);
-  const latencySeverity = metricSeverity(latencyMs, 120, 250);
+  const gatewaySeverity = metricSeverity(gatewayMs, 120, 250);
+  const controlSeverity = metricSeverity(controlMs, 120, 250);
+  const latencySeverity = serverChecks ? controlSeverity : gatewaySeverity;
   const jitterSeverity = hasJitter ? metricSeverity(st.jitter_ms, 30, 60) : "";
   const lossSeverity = hasLoss ? metricSeverity(st.loss_pct, 3, 10) : "";
 
-  latest.textContent = latencyMs ? latencyMs + " ms" : "–";
-  showMetricSeverity(latest, latencySeverity, latencyDescription +
-    (latencySeverity ? " Slow replies can make apps feel less responsive." : ""));
-  jitter.textContent = hasJitter ? "±" + st.jitter_ms + " ms jitter" : "";
-  showMetricSeverity(jitter, jitterSeverity, "Jitter measures how much response times vary." +
+  latest.textContent = gatewayMs > 0 ? gatewayMs + " ms" : "–";
+  showMetricSeverity(latest, gatewaySeverity, gatewayDescription +
+    (gatewaySeverity ? " Slow replies can make apps feel less responsive." : ""));
+  control.textContent = controlMs > 0 ? controlMs + " ms" : "–";
+  showMetricSeverity(control, controlSeverity, serverDescription +
+    (controlSeverity ? " The control server was slow to reply." : ""));
+  jitter.textContent = hasJitter ? "Jitter ±" + st.jitter_ms + " ms" : "";
+  showMetricSeverity(jitter, jitterSeverity, "Gateway response time variation over the last 30 seconds." +
     (jitterSeverity ? " Uneven replies can make calls choppy." : ""));
 
   $("m-loss-label").textContent = serverChecks || unknownSource ? "Missed checks" : "Packet loss";
@@ -372,7 +377,7 @@ function renderStatus(st) {
 
   const drops = st.drops_recent || 0;
   const reasons = [];
-  if (latencySeverity) reasons.push("Slow replies.");
+  if (latencySeverity) reasons.push(serverChecks ? "Slow control-server replies." : "Slow gateway replies.");
   if (jitterSeverity) reasons.push("Uneven response times.");
   if (lossSeverity) reasons.push("Missed connection checks.");
   if (drops >= 3) reasons.push(drops + " connection drops in the last 15 minutes.");
@@ -385,9 +390,7 @@ function renderStatus(st) {
   badge.textContent = qualityText;
   badge.className = "pill " + qualityColor;
   badge.title = reasons.join(" ");
-  chartData.lat = { values: latency, timing: chartTiming(st.latency_history_seconds, st.latency_latest_seconds) };
-  drawLatency(latency);
-  renderChartAxis("lat", chartData.lat, false, serverChecks ? 35 : 6);
+  renderLatencyChart(st);
 
   // Network
   const n = st.network || {};
@@ -477,7 +480,7 @@ function drawRates(h) {
   svg.append(svgEl("path", { d: down, class: "down" }));
   svg.append(svgEl("path", { d: pathFor(h.map((p) => p.tx), W, H, top), class: "up" }));
 }
-function drawLatency(h) {
+function drawLegacyLatency(h, serverChecks) {
   const svg = $("lat-chart"), W = 300, H = 40;
   if (!svg) return;
   svg.replaceChildren();
@@ -490,10 +493,81 @@ function drawLatency(h) {
   }
   const top = Math.max(50, ...ok) * 1.2;
   const pts = h.map((v) => (v < 0 ? top : v));
-  svg.append(svgEl("path", { d: pathFor(pts, W, H, top), class: "lat" }));
+  svg.append(svgEl("path", { d: pathFor(pts, W, H, top), class: serverChecks ? "lat-control" : "lat" }));
   h.forEach((v, i) => {
     if (v < 0) svg.append(svgEl("circle", { cx: (i / Math.max(1, h.length - 1)) * W, cy: 4, r: 2.5, class: "fail" }));
   });
+}
+
+function timedLatencyChart(st, now) {
+  const series = [
+    { key: "gateway", label: "Gateway", samples: st.gateway_latency_history || [] },
+    { key: "control", label: "Control server", samples: st.control_latency_history || [] },
+  ].map((source) => ({
+    ...source,
+    samples: source.samples.map((sample) => ({ at: ts(sample.at), ms: sample.ms }))
+      .filter((sample) => sample.at && Number.isFinite(sample.ms)),
+  })).filter((source) => source.samples.length);
+  if (!series.length) return null;
+  const oldest = Math.min(...series.map((source) => source.samples[0].at));
+  const latest = Math.max(...series.map((source) => source.samples[source.samples.length - 1].at));
+  return { series, oldest, end: Math.max(now, latest, oldest + 1), now };
+}
+
+function drawTimedLatency(chart) {
+  const svg = $("lat-chart"), W = 300, H = 40;
+  svg.replaceChildren();
+  const top = Math.max(50, ...chart.series.flatMap((source) => source.samples.map((sample) => sample.ms))) * 1.2;
+  for (const { key, samples } of chart.series) {
+    const control = key === "control";
+    const points = [];
+    const markers = [];
+    for (const [i, sample] of samples.entries()) {
+      const x = (sample.at - chart.oldest) / (chart.end - chart.oldest) * W;
+      if (sample.ms < 0) {
+        markers.push(control
+          ? svgEl("rect", { x: x - 2, y: 7, width: 4, height: 4, class: "fail" })
+          : svgEl("circle", { cx: x, cy: 4, r: 2, class: "fail" }));
+        continue;
+      }
+      const y = H - (sample.ms / top) * (H - 2) - 1;
+      const before = i > 0 && samples[i - 1].ms >= 0;
+      const after = i + 1 < samples.length && samples[i + 1].ms >= 0;
+      if (before || after) points.push((before ? "L" : "M") + x.toFixed(1) + " " + y.toFixed(1));
+      else markers.push(svgEl("circle", { cx: x, cy: y, r: 2, class: control ? "lat-control-point" : "lat-point" }));
+    }
+    if (points.length) svg.append(svgEl("path", { d: points.join(" "), class: control ? "lat-control" : "lat" }));
+    svg.append(...markers);
+  }
+}
+
+function renderLatencyChart(st) {
+  const chart = timedLatencyChart(st, Date.now());
+  const legacy = st.gateway_latency_history === undefined && st.control_latency_history === undefined;
+  const legacyValues = legacy ? st.latency_history || [] : [];
+  const plotted = chart ? chart.series.map((source) => source.key) :
+    legacyValues.filter((value) => value >= 0).length >= 2 ? [st.latency_source] : [];
+  $("lat-key-gateway").classList.toggle("hidden", !plotted.includes("gateway"));
+  $("lat-key-control").classList.toggle("hidden", !plotted.includes("control"));
+  if (chart) {
+    chartData.lat = chart;
+    $("lat-caption").textContent = "Latency";
+    $("lat-total").title = "Gateway pings and HTTPS heartbeats to the control server. Red marks failed checks.";
+    $("lat-oldest").textContent = sampleAge(chart.oldest, chart.now);
+    $("lat-latest").textContent = "Now";
+    drawTimedLatency(chart);
+    return;
+  }
+  const serverChecks = st.latency_source === "control";
+  $("lat-caption").textContent = !legacy ? "Latency" : serverChecks ? "Server latency" : st.latency_source === "gateway" ? "Gateway latency" : "Latency";
+  const description = !legacy ? "Gateway pings and HTTPS heartbeats to the control server."
+    : serverChecks ? "Round trip to the control server." : st.latency_source === "gateway"
+    ? "Round trip to your VPN gateway through the tunnel. Each point can represent several pings."
+    : "Round trip for recent connection checks.";
+  $("lat-total").title = description + " Red marks samples with no reply.";
+  chartData.lat = { values: legacyValues, timing: chartTiming(st.latency_history_seconds, st.latency_latest_seconds) };
+  drawLegacyLatency(chartData.lat.values, serverChecks);
+  renderChartAxis("lat", chartData.lat, false, serverChecks ? 35 : 6);
 }
 
 function renderAbout() {
@@ -885,6 +959,23 @@ function chartAge(chart, i) {
   const offset = oldest - (oldest - latest) * i / Math.max(1, chart.values.length - 1);
   return offset < 2 ? "Now · " : "About " + historyDuration(offset, true) + " ago · ";
 }
+function sampleAge(at, now) {
+  const age = (now - at) / 1000;
+  return age < 2 ? "Now" : historyDuration(age) + " ago";
+}
+function timedLatencyTip(chart, fraction) {
+  const span = chart.end - chart.oldest;
+  const at = chart.oldest + fraction * span;
+  const padding = span / 100;
+  const lines = [];
+  for (const { label, samples } of chart.series) {
+    if (at < samples[0].at - padding || at > samples[samples.length - 1].at + padding) continue;
+    const sample = samples.reduce((nearest, next) => Math.abs(next.at - at) < Math.abs(nearest.at - at) ? next : nearest);
+    const reading = sample.ms < 0 ? "check failed" : sample.ms + " ms";
+    lines.push(label + " " + reading + " · " + sampleAge(sample.at, chart.now));
+  }
+  return lines.join("\n");
+}
 function chartTip(svgId, read) {
   const svg = $(svgId);
   if (!svg) return;
@@ -919,10 +1010,11 @@ chartTip("sp-chart", (frac) => {
   if (!h.length) return "";
   const i = Math.round(frac * (h.length - 1));
   const p = h[i];
-  return chartAge(chart, i) + "↓ " + fmtBps(p.rx) + "  ↑ " + fmtBps(p.tx);
+  return chartAge(chart, i) + "Download " + fmtBps(p.rx) + " · Upload " + fmtBps(p.tx);
 });
 chartTip("lat-chart", (frac) => {
   const chart = chartData.lat, h = chart.values;
+  if (chart.series) return timedLatencyTip(chart, frac);
   if (!h.length) return "";
   const i = Math.round(frac * (h.length - 1));
   const v = h[i];
