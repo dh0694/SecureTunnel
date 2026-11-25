@@ -341,16 +341,24 @@ function renderStatus(st) {
   const lat = latency.filter((v) => v >= 0);
   const serverChecks = latency.length > 0 && st.latency_source === "control";
   const unknownSource = latency.length > 0 && !st.latency_source;
+  const healthChecks = st.control_health_ms !== undefined;
   const gatewayDescription = "Last successful ping to the assigned gateway through your VPN tunnel.";
-  const serverDescription = "Last successful HTTPS heartbeat to the control server.";
   const latest = $("m-lat"), control = $("m-control-lat"), jitter = $("m-jit"), loss = $("m-loss");
   const gatewayMs = !rec ? st.gateway_ms ?? (st.latency_source === "gateway" ? st.latency_ms : 0) : 0;
-  const controlMs = !rec ? st.control_ms ?? (serverChecks ? st.latency_ms : 0) : 0;
+  const controlMs = healthChecks ? st.control_health_ms : !rec ? st.control_ms ?? (serverChecks ? st.latency_ms : 0) : 0;
+  const healthHistory = st.control_latency_history || [];
+  let serverDescription = "Last successful HTTPS session heartbeat to the control server.";
+  if (healthChecks) {
+    if (controlMs > 0) serverDescription = "Latest successful HTTPS health check to the control server (GET /healthz).";
+    else if (healthHistory.length && healthHistory[healthHistory.length - 1].ms < 0) {
+      serverDescription = "The latest HTTPS health check failed (GET /healthz).";
+    } else serverDescription = "No recent result from the HTTPS health check (GET /healthz).";
+  }
   const hasJitter = !rec && st.latency_source === "gateway" && (st.jitter_measured ?? (lat.length > 1)) && Number.isFinite(st.jitter_ms);
   const hasLoss = latency.length > 0 && Number.isFinite(st.loss_pct) &&
     (st.latency_source !== "gateway" || st.loss_window_seconds !== 0);
   const gatewaySeverity = metricSeverity(gatewayMs, 120, 250);
-  const controlSeverity = metricSeverity(controlMs, 120, 250);
+  const controlSeverity = healthChecks ? metricSeverity(controlMs, 750, 2000) : metricSeverity(controlMs, 120, 250);
   const latencySeverity = serverChecks ? controlSeverity : gatewaySeverity;
   const jitterSeverity = hasJitter ? metricSeverity(st.jitter_ms, 30, 60) : "";
   const lossSeverity = hasLoss ? metricSeverity(st.loss_pct, 3, 10) : "";
@@ -366,7 +374,7 @@ function renderStatus(st) {
     (jitterSeverity ? " Uneven replies can make calls choppy." : ""));
 
   $("m-loss-label").textContent = serverChecks || unknownSource ? "Missed checks" : "Packet loss";
-  const lossDescription = serverChecks ? "Percentage of recent control server checks that received no reply."
+  const lossDescription = serverChecks ? "Percentage of recent session heartbeats to the control server that did not succeed."
     : unknownSource ? "Percentage of recent connection checks that received no reply."
       : "Percentage of VPN gateway pings from the last 30 seconds that received no reply.";
   const lossDetail = lossDescription + (lossSeverity ? " Some checks are going unanswered." : "");
@@ -541,6 +549,7 @@ function drawTimedLatency(chart) {
 
 function renderLatencyChart(st) {
   const chart = timedLatencyChart(st, Date.now());
+  const checkDescription = st.control_health_ms !== undefined ? "HTTPS health checks (GET /healthz)" : "HTTPS session heartbeats";
   const legacy = st.gateway_latency_history === undefined && st.control_latency_history === undefined;
   const legacyValues = legacy ? st.latency_history || [] : [];
   const plotted = chart ? chart.series.map((source) => source.key) :
@@ -550,7 +559,7 @@ function renderLatencyChart(st) {
   if (chart) {
     chartData.lat = chart;
     $("lat-caption").textContent = "Latency";
-    $("lat-total").title = "Gateway pings and HTTPS heartbeats to the control server. Red marks failed checks.";
+    $("lat-total").title = "Gateway pings and " + checkDescription + " to the control server. Red marks failed checks.";
     $("lat-oldest").textContent = sampleAge(chart.oldest, chart.now);
     $("lat-latest").textContent = "Now";
     drawTimedLatency(chart);
@@ -558,8 +567,8 @@ function renderLatencyChart(st) {
   }
   const serverChecks = st.latency_source === "control";
   $("lat-caption").textContent = !legacy ? "Latency" : serverChecks ? "Server latency" : st.latency_source === "gateway" ? "Gateway latency" : "Latency";
-  const description = !legacy ? "Gateway pings and HTTPS heartbeats to the control server."
-    : serverChecks ? "Round trip to the control server." : st.latency_source === "gateway"
+  const description = !legacy ? "Gateway pings and " + checkDescription + " to the control server."
+    : serverChecks ? "Round trip for HTTPS session heartbeats to the control server." : st.latency_source === "gateway"
     ? "Round trip to your VPN gateway through the tunnel. Each point can represent several pings."
     : "Round trip for recent connection checks.";
   $("lat-total").title = description + " Red marks samples with no reply.";

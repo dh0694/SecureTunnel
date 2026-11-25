@@ -895,6 +895,8 @@ func TestHeartbeatJitterRequiresRecentConsecutiveReplies(t *testing.T) {
 func TestActiveGatewayAndControlChecksHaveSeparateHistories(t *testing.T) {
 	r := newRig(t)
 	r.connect(t)
+	health := &fakeControlHealthAPI{fakeAPI: r.api, host: r.e.server}
+	r.e.api = health
 	r.api.insideIP = "10.200.0.1"
 	r.e.sess.Placement.Gateway.InsideIP = r.api.insideIP
 	r.e.o.Ping = func(context.Context, netip.Addr, netip.Addr, time.Duration) (time.Duration, error) {
@@ -904,18 +906,28 @@ func TestActiveGatewayAndControlChecksHaveSeparateHistories(t *testing.T) {
 	r.e.pingHist = []int{12, 51}
 	r.e.pingTimes = []time.Time{r.now.Add(-31 * time.Minute), r.now.Add(-2 * time.Second)}
 	r.e.Tick(context.Background())
+	if st := r.e.Status(); st.ControlMs != 20 || st.ControlHealthMs != 0 || len(st.ControlLatencyHistory) != 0 {
+		t.Fatalf("heartbeat changed health measurements: %+v", st)
+	}
+	r.e.sampleControlHealth(context.Background())
+	if st := r.e.Status(); st.ControlHealthMs <= 0 {
+		t.Fatalf("expected a successful health measurement: %+v", st)
+	}
 	r.api.hbErr = func(bool) error { return errNet }
 	r.advance(5 * time.Second)
 	r.e.Kick()
 	r.e.Tick(context.Background())
+	health.probe = func(context.Context) error { return errNet }
+	r.e.sampleControlHealth(context.Background())
 
 	st := r.e.Status()
 	if len(st.GatewayLatencyHistory) != 1 || st.GatewayLatencyHistory[0].MS != 51 ||
 		!st.GatewayLatencyHistory[0].At.Equal(r.now.Add(-7*time.Second)) {
 		t.Fatalf("unexpected gateway samples: %+v", st.GatewayLatencyHistory)
 	}
-	if len(st.ControlLatencyHistory) != 2 || st.ControlLatencyHistory[0].MS != 20 ||
-		st.ControlLatencyHistory[1].MS != -1 || !st.ControlLatencyHistory[1].At.Equal(r.now) {
-		t.Fatalf("expected a recorded heartbeat and timeout: %+v", st.ControlLatencyHistory)
+	if st.ControlHealthMs != 0 || st.ControlMs != 20 || len(st.ControlLatencyHistory) != 2 ||
+		st.ControlLatencyHistory[0].MS <= 0 || st.ControlLatencyHistory[1].MS != -1 ||
+		!st.ControlLatencyHistory[1].At.Equal(r.now) {
+		t.Fatalf("expected recorded health reply and failure without changing the heartbeat RTT: %+v", st)
 	}
 }

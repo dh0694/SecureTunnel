@@ -264,13 +264,16 @@ func (c *Client) each(f func(cl *Client) error) error {
 
 // Active returns the address currently in use (Base or a fallback).
 func (c *Client) Active() string {
-	all := append([]*Client{c}, c.Fallbacks...)
+	return c.activeClient().Base
+}
+
+func (c *Client) activeClient() *Client {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.active < len(all) {
-		return all[c.active].Base
+	if c.active > 0 && c.active <= len(c.Fallbacks) {
+		return c.Fallbacks[c.active-1]
 	}
-	return c.Base
+	return c
 }
 
 func (c *Client) do(ctx context.Context, method, path, bearer string, body, out any) error {
@@ -636,6 +639,24 @@ func parseVersion(v string) ([3]int, bool) {
 // Health checks /healthz.
 func (c *Client) Health(ctx context.Context) error {
 	return c.do(ctx, http.MethodGet, "/healthz", "", nil, nil)
+}
+
+// ProbeHealth checks the address in use without changing the active server or
+// timing retries to backup addresses. The response must identify a healthy
+// control server so an unrelated successful HTTP response is not a sample.
+func (c *Client) ProbeHealth(ctx context.Context) error {
+	var health struct {
+		Status string `json:"status"`
+	}
+	headers := http.Header{"Cache-Control": {"no-cache"}}
+	err := c.activeClient().doOnce(ctx, http.MethodGet, "/healthz", "", nil, &health, headers)
+	if err != nil {
+		return err
+	}
+	if health.Status != "ok" {
+		return errors.New("control server health response was not OK")
+	}
+	return nil
 }
 
 // UploadLogs sends a zip of agent logs. sessionID/resumeToken may be empty

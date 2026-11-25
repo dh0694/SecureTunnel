@@ -238,20 +238,26 @@ func (a *agentService) diagnose(ctx context.Context) []diagItem {
 		}
 	}
 
-	c := a.client(server)
-	start := time.Now()
+	// Check the configured server here. Each backup has its own result below.
+	c := a.singleClient(server)
 	hctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	err := c.Health(hctx)
+	start := time.Now()
+	err := c.ProbeHealth(hctx)
+	elapsed := time.Since(start)
 	cancel()
 	if err != nil {
-		add("Server reachable", false, agentcore.Friendly(err))
+		add("Control server health", false, "GET /healthz failed. "+agentcore.Friendly(err))
 	} else {
 		mode := map[clienttls.Mode]string{
-			clienttls.ModeSystem: "its certificate is trusted",
-			clienttls.ModePinned: "its certificate matches the one saved on first connect",
-			clienttls.ModeFirst:  "its certificate was saved now (first connection)",
+			clienttls.ModeSystem: "The server certificate is trusted.",
+			clienttls.ModePinned: "The server certificate matches the saved certificate.",
+			clienttls.ModeFirst:  "The server certificate was saved on first connection.",
 		}[a.trust(server).LastMode()]
-		add("Server reachable", true, fmt.Sprintf("Answered in %d ms; %s", time.Since(start).Milliseconds(), mode))
+		detail := fmt.Sprintf("GET /healthz answered in %d ms.", max(1, elapsed.Milliseconds()))
+		if mode != "" {
+			detail += " " + mode
+		}
+		add("Control server health", true, detail)
 	}
 
 	if backs := backupServers(); len(backs) > 0 {
@@ -286,10 +292,6 @@ func (a *agentService) diagnose(ctx context.Context) []diagItem {
 			detail += fmt.Sprintf("; replies in %d ms through the tunnel", st.LatencyMs)
 		}
 		add("VPN gateway", st.State == agentcore.StateConnected, detail)
-	}
-	if st.ControlMs > 0 {
-		add("Control server response", st.ControlMs < 2000, fmt.Sprintf(
-			"Check-ins answered in %d ms. This includes Cloudflare and the server's own work, so it's normally higher than the gateway latency on the Status tab.", st.ControlMs))
 	}
 	exe, _ := os.Executable()
 	if _, err := os.Stat(filepath.Join(filepath.Dir(exe), "wireguard.dll")); err != nil {

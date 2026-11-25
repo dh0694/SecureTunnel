@@ -156,9 +156,10 @@ type Status struct {
 	JitterMs              int             `json:"jitter_ms"`
 	JitterMeasured        bool            `json:"jitter_measured"`
 	LossPct               float64         `json:"loss_pct"`
-	LatencySource         string          `json:"latency_source"` // "gateway" or "control"
-	ControlMs             int             `json:"control_ms"`     // last heartbeat round trip to the control server
-	GatewayMs             int             `json:"gateway_ms"`     // last successful recent ping through the tunnel
+	LatencySource         string          `json:"latency_source"`    // "gateway" or "control"
+	ControlMs             int             `json:"control_ms"`        // last heartbeat round trip to the control server
+	ControlHealthMs       int             `json:"control_health_ms"` // latest successful health probe, 0 when unavailable
+	GatewayMs             int             `json:"gateway_ms"`        // last successful recent ping through the tunnel
 	GatewayLatencyHistory []LatencySample `json:"gateway_latency_history"`
 	ControlLatencyHistory []LatencySample `json:"control_latency_history"`
 
@@ -298,6 +299,7 @@ type Engine struct {
 	pingHist           []int         // gateway pings in ms, -1 = no reply (up to pingKeep)
 	hbTimes, pingTimes []time.Time   // sample times, kept aligned with their histories
 	ctrlRTT            time.Duration // last heartbeat round trip
+	controlHealth      controlHealth
 	rateHist           []RatePoint
 	trafT              time.Time
 	trafRx             uint64
@@ -333,7 +335,8 @@ func New(o Options) *Engine {
 	if o.ReconnectingAfter <= 0 {
 		o.ReconnectingAfter = 20 * time.Second
 	}
-	return &Engine{o: o, state: StateDisconnected, wake: make(chan struct{}, 1)}
+	return &Engine{o: o, state: StateDisconnected, wake: make(chan struct{}, 1),
+		controlHealth: controlHealth{wake: make(chan struct{}, 1)}}
 }
 
 // tunnelUp and tunnelDown wrap the Tunnel and reset HTTP connections after.
@@ -570,10 +573,18 @@ func (e *Engine) SetServer(server string, locked bool) error {
 	if e.serverLocked && !locked && server != e.server {
 		return errors.New("the server is set by your IT department")
 	}
+	if server != e.server {
+		e.controlHealth.host = ""
+		e.controlHealth.history = nil
+	}
 	e.server, e.serverLocked = server, locked
 	e.api = nil
 	if server != "" {
 		e.api = e.o.NewAPI(server)
+	}
+	e.controlHealth.apiGeneration++
+	if e.controlHealth.session != nil {
+		e.controlHealth.poke()
 	}
 	return nil
 }
@@ -669,10 +680,7 @@ func (e *Engine) Status() Status {
 	defer e.mu.Unlock()
 	now := e.o.Now()
 	e.sampleTraffic(now)
-	inUse := e.server
-	if a, ok := e.api.(interface{ Active() string }); ok && a.Active() != "" {
-		inUse = a.Active()
-	}
+	inUse := e.activeServer()
 	st := Status{
 		State: e.state, Message: e.message, VPNPhase: e.vpnPhase, Server: e.server, ServerInUse: inUse, ServerLocked: e.serverLocked,
 		LastHeartbeat: e.lastHB, LatencyMs: int(e.latency / time.Millisecond),
@@ -684,7 +692,7 @@ func (e *Engine) Status() Status {
 	}
 	historyCutoff := now.Add(-30 * time.Minute)
 	cutoff := now.Add(-qualityWindow)
-	st.ControlLatencyHistory = latencySamples(e.hbHist, e.hbTimes, historyCutoff)
+	e.controlHealth.status(&st, now, historyCutoff)
 	st.GatewayLatencyHistory = latencySamples(e.pingHist, e.pingTimes, historyCutoff)
 	_, st.LossPct, _ = quality(e.hbHist)
 	st.JitterMs, _, st.JitterMeasured = quality(e.hbHist[recentSampleStart(e.hbTimes, cutoff):])
@@ -772,6 +780,7 @@ func (e *Engine) setState(s State, msg string) {
 		e.drops = e.drops[cut:]
 	}
 	e.state, e.message = s, msg
+	e.syncControlHealthSession()
 	if s != StateReconnecting {
 		e.vpnPhase = ""
 	}
@@ -1107,6 +1116,7 @@ func (e *Engine) Restore() {
 	if s.Server != e.server || e.api == nil {
 		e.server = s.Server
 		e.api = e.o.NewAPI(s.Server)
+		e.controlHealth.apiGeneration++
 	}
 	e.sess = s
 	e.tunnelPending = s.TunnelPending
@@ -1120,6 +1130,7 @@ func (e *Engine) Restore() {
 // Run drives heartbeats, recovery and office detection until ctx ends.
 func (e *Engine) Run(ctx context.Context) {
 	go e.watchLoop(ctx)
+	go e.controlHealthLoop(ctx)
 	if e.o.Ping != nil {
 		go e.pingLoop(ctx)
 	}

@@ -30,7 +30,7 @@
     if (state === "connected" || state === "reconnecting" || state === "message" || state === "officemode") {
       Object.assign(s, {
         state: state === "message" || state === "officemode" ? "connected" : state, gateway: "lab-gw", gateway_endpoint: "172.234.204.252:51820", tunnel_ip: "10.200.0.2",
-        connected_since: iso(2.3 * 3600e3), last_heartbeat: iso(8e3), latency_ms: 50, gateway_ms: 50, control_ms: 75, jitter_ms: 4, loss_pct: 2.5,
+        connected_since: iso(2.3 * 3600e3), last_heartbeat: iso(8e3), latency_ms: 50, gateway_ms: 50, control_ms: 260, control_health_ms: 75, jitter_ms: 4, loss_pct: 2.5,
         session_expires: new Date(now + 9.7 * 3600e3).toISOString(), grace_left_sec: state === "reconnecting" ? 742 : 0,
         device_trust: { join_type: "Hybrid joined", compliant: true, entra_proven: true, entra_device_id: "6f1c2e8a-93b4-4d7e-8a21-0c5b9e3f7d14", device_cert: { ok: true }, passed: true },
         latency_history: lat(), rate_history: rates(), latency_source: "gateway",
@@ -43,7 +43,7 @@
     } else if (state === "unstable") {
       Object.assign(s, {
         state: "connected", gateway: "lab-gw", gateway_endpoint: "172.234.204.252:51820", tunnel_ip: "10.200.0.2", drops_recent: 4,
-        connected_since: iso(40 * 60e3), last_heartbeat: iso(8e3), latency_ms: 96, gateway_ms: 96, control_ms: 180, jitter_ms: 41, loss_pct: 7.5,
+        connected_since: iso(40 * 60e3), last_heartbeat: iso(8e3), latency_ms: 96, gateway_ms: 96, control_ms: 310, control_health_ms: 180, jitter_ms: 41, loss_pct: 7.5,
         session_expires: new Date(now + 11 * 3600e3).toISOString(), latency_history: lat(), rate_history: rates(), latency_source: "gateway",
         ...latencySeries(96, 180),
         latency_history_seconds: 1800, latency_latest_seconds: 0, loss_window_seconds: 30, rate_history_seconds: 60, rate_latest_seconds: 0, rx_bps: 2.1e6, tx_bps: 0.4e6,
@@ -68,7 +68,7 @@
   const diag = [
     { name: "Server", ok: true, detail: "https://vpn.cott1nghambutler.com (set in the app)" },
     { name: "DNS", ok: true, detail: "vpn.cott1nghambutler.com → 104.21.32.7 (14 ms)" },
-    { name: "Control server", ok: true, detail: "Reachable in 88 ms, trusted certificate" },
+    { name: "Control server health", ok: true, detail: "GET /healthz answered in 75 ms. The server certificate is trusted." },
     { name: "Gateway", ok: true, detail: "lab-gw at 172.234.204.252:51820" },
     { name: "WireGuard driver", ok: true, detail: "Installed" },
     { name: "Tunnel", ok: true, detail: "Running" },
