@@ -109,7 +109,7 @@
                 <span class="chart-reading-detail" id="conn-up" title="Data uploaded through the current VPN tunnel">–</span>
               </div>
             </div></div>
-          <div id="lat-total"><div class="cap" id="lat-caption">Latency</div>
+          <div id="lat-total"><div class="cap" id="lat-caption" title="Round trip to the VPN gateway through the tunnel. Red dots mark failed pings.">Gateway latency</div>
             <svg id="lat-chart" class="chart small-chart" viewBox="0 0 300 40" preserveAspectRatio="none"></svg>
             <div class="chart-axis"><span id="lat-oldest"></span><span id="lat-latest"></span></div>
             <div class="chart-readings">
@@ -119,8 +119,8 @@
                 <span class="chart-reading-detail" id="m-jit"></span>
               </div>
               <div>
-                <span class="chart-reading-label"><span class="sw latency-control hidden" id="lat-key-control" aria-hidden="true"></span>Control server</span>
-                <strong id="m-control-lat">–</strong>
+                <span class="chart-reading-label">Control server</span>
+                <strong id="m-control-status">Checking…</strong>
               </div>
             </div></div>
         </div>
@@ -134,8 +134,9 @@
 
       <div class="card details">
         <div class="kv"><div class="k">Signed in as</div><div class="v" id="st-user"></div></div>
-        <div class="kv" title="The control server address this app is using"><div class="k">Server</div><div class="v" id="st-server">–</div></div>
-        <div class="kv" title="The VPN gateway your traffic goes through"><div class="k">Gateway</div><div class="v" id="st-gw"></div><div class="sub mono" id="st-gw-ep"></div></div>
+        <div class="kv" title="The control server address this app is using"><div class="k">Control server</div><div class="v" id="st-server">–</div></div>
+        <div class="kv" title="The VPN gateway your traffic goes through"><div class="k">Gateway</div><div class="v" id="st-gw">–</div></div>
+        <div class="kv"><div class="k">Gateway endpoint</div><div class="v mono" id="st-gw-ep">–</div></div>
         <div class="kv"><div class="k">Connected for</div><div class="v" id="m-dur"></div></div>
         <div class="kv"><div class="k">Session ends</div><div class="v" id="m-exp"></div></div>
         <div class="kv"><div class="k">Tunnel IP</div><div class="v mono" id="st-ip"></div></div>

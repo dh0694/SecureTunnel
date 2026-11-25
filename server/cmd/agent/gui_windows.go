@@ -29,6 +29,8 @@ var webFS embed.FS
 const (
 	guiMutexName = `Local\SecureTunnelGUI`
 	guiShowEvent = `Local\SecureTunnelShow`
+	// go-winres simply embeds the SecureTunnel shield as icon group 1.
+	windowIconResourceID = 1
 )
 
 var (
@@ -233,6 +235,7 @@ func openWindow() {
 				Title:  "SecureTunnel",
 				Width:  420,
 				Height: 820,
+				IconId: windowIconResourceID,
 				Center: false,
 			},
 		})

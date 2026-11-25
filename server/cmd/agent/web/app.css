@@ -105,9 +105,7 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg
 .chart .down-a { fill: var(--accent); opacity: .12; }
 .chart .up { fill: none; stroke: var(--ok); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .chart .lat { fill: none; stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
-.chart .lat-control { fill: none; stroke: var(--warn); stroke-width: 1.5; stroke-dasharray: 3 2; vector-effect: non-scaling-stroke; }
 .chart .lat-point { fill: var(--accent); }
-.chart .lat-control-point { fill: var(--warn); }
 .chart .fail { fill: var(--bad); }
 .chart .empty { fill: var(--muted); font-size: 11px; }
 .pill.neutral { background: var(--neutral-bg); color: var(--muted); }
@@ -258,6 +256,7 @@ input { border-radius: 8px; }
 .conn-loss strong { color: var(--text); font-size: 13px; font-weight: 650; }
 .conn .metric-warn { color: var(--warn); }
 .conn .metric-bad { color: var(--bad); }
+.conn .metric-ok { color: var(--ok); }
 .conn-charts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .conn-charts .chart { height: 34px; margin: 0; }
 .conn .muted.small { font-size: 11.5px; }
@@ -303,7 +302,6 @@ input { border-radius: 8px; }
 .chart-readings { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 3px; }
 .chart-reading-label { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: 10px; }
 .chart-reading-label .sw { flex-shrink: 0; }
-.chart-reading-label .latency-control { height: 0; border-top: 2px dashed var(--warn); border-radius: 0; }
 .chart-readings strong { display: block; font-size: 13px; font-weight: 650; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chart-reading-detail { display: block; color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
@@ -326,8 +324,6 @@ input { border-radius: 8px; }
 .view > .hero:first-child h1 { font-size: 15.5px; }
 .view > .hero:first-child .muted { font-size: 12.5px; }
 .view > .hero:first-child .btn.top-btn { padding: 5px 11px; font-size: 12.5px; }
-.details .sub { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
 /* ---- Settings: certificates ---- */
 select { font: inherit; font-size: 13.5px; color: inherit; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 8px; padding: 6px 10px; outline: none; width: 100%; min-width: 0; }
 select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }

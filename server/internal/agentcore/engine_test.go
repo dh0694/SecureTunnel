@@ -259,7 +259,7 @@ func TestGatewayFailureFailsOver(t *testing.T) {
 		t.Fatalf("failovers = %d, want 1", r.api.failovers)
 	}
 	st := r.e.Status()
-	if st.State != StateConnected || st.Gateway != "gw-b" || st.TunnelIP != "10.200.8.2" {
+	if st.State != StateConnected || st.Gateway != "gw-b" || st.TunnelIP != "10.200.8.2" || st.ControlStatus != "online" {
 		t.Fatalf("after failover: %+v", st)
 	}
 	if !r.tun.Running() || r.tun.cfg.Endpoint != "gw-b.example.com:51820" || r.tun.cfg.Address != "10.200.8.2/32" {
@@ -318,8 +318,8 @@ func TestUserDisconnect(t *testing.T) {
 	if err := r.e.Disconnect(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if r.api.disconnects != 1 || r.tun.Running() || r.e.Status().State != StateDisconnected {
-		t.Fatalf("disconnects=%d tunnel=%v state=%s", r.api.disconnects, r.tun.Running(), r.e.Status().State)
+	if st := r.e.Status(); r.api.disconnects != 1 || r.tun.Running() || st.State != StateDisconnected || st.ControlStatus != "checking" {
+		t.Fatalf("disconnects=%d tunnel=%v status=%+v", r.api.disconnects, r.tun.Running(), st)
 	}
 }
 
@@ -339,9 +339,18 @@ func TestRestoreAfterServiceRestart(t *testing.T) {
 	if tun.ups != ups {
 		t.Error("restore restarted a tunnel that was already running")
 	}
+	if st := r2.e.Status(); st.ControlStatus != "checking" {
+		t.Fatalf("restored session should await a control reply: %+v", st)
+	}
+	r2.api.hbErr = func(bool) error { return errNet }
+	r2.e.Tick(context.Background())
+	if st := r2.e.Status(); st.ControlStatus != "checking" {
+		t.Fatalf("one missed check should leave a restored session checking: %+v", st)
+	}
+	r2.api.hbErr = nil
 	r2.api.gw = "gw-a"
 	r2.e.Tick(context.Background())
-	if st := r2.e.Status(); st.State != StateConnected || st.User != "testuser" {
+	if st := r2.e.Status(); st.State != StateConnected || st.User != "testuser" || st.ControlStatus != "online" {
 		t.Fatalf("after restore: %+v", st)
 	}
 }
@@ -892,11 +901,13 @@ func TestHeartbeatJitterRequiresRecentConsecutiveReplies(t *testing.T) {
 	}
 }
 
-func TestActiveGatewayAndControlChecksHaveSeparateHistories(t *testing.T) {
+func TestControlStatusDoesNotChangeWorkingTunnel(t *testing.T) {
 	r := newRig(t)
 	r.connect(t)
-	health := &fakeControlHealthAPI{fakeAPI: r.api, host: r.e.server}
-	r.e.api = health
+	ctx := context.Background()
+	if st := r.e.Status(); st.ControlStatus != "online" {
+		t.Fatalf("successful connect should confirm reachability: %+v", st)
+	}
 	r.api.insideIP = "10.200.0.1"
 	r.e.sess.Placement.Gateway.InsideIP = r.api.insideIP
 	r.e.o.Ping = func(context.Context, netip.Addr, netip.Addr, time.Duration) (time.Duration, error) {
@@ -905,29 +916,52 @@ func TestActiveGatewayAndControlChecksHaveSeparateHistories(t *testing.T) {
 	r.advance(31 * time.Second)
 	r.e.pingHist = []int{12, 51}
 	r.e.pingTimes = []time.Time{r.now.Add(-31 * time.Minute), r.now.Add(-2 * time.Second)}
-	r.e.Tick(context.Background())
-	if st := r.e.Status(); st.ControlMs != 20 || st.ControlHealthMs != 0 || len(st.ControlLatencyHistory) != 0 {
-		t.Fatalf("heartbeat changed health measurements: %+v", st)
+	r.e.Tick(ctx)
+	r.api.hbErr = func(bool) error { return &clientapi.APIError{Status: 502, Message: "bad gateway"} }
+	for _, want := range []string{"online", "offline"} {
+		r.advance(5 * time.Second)
+		r.e.Kick()
+		r.e.Tick(ctx)
+		st := r.e.Status()
+		if st.ControlStatus != want || st.State != StateConnected || !r.tun.Running() {
+			t.Fatalf("control status should be %s without interrupting the VPN: %+v", want, st)
+		}
+		if st.ControlMs != 20 || len(st.GatewayLatencyHistory) != 1 || st.GatewayLatencyHistory[0].MS != 51 {
+			t.Fatalf("control availability changed the latency readings: %+v", st)
+		}
 	}
-	r.e.sampleControlHealth(context.Background())
-	if st := r.e.Status(); st.ControlHealthMs <= 0 {
-		t.Fatalf("expected a successful health measurement: %+v", st)
+
+	r.api.hbErr = func(bool) error {
+		return &clientapi.APIError{Status: 503, Code: "no_gateway", Message: "no gateway available"}
 	}
-	r.api.hbErr = func(bool) error { return errNet }
 	r.advance(5 * time.Second)
 	r.e.Kick()
-	r.e.Tick(context.Background())
-	health.probe = func(context.Context) error { return errNet }
-	r.e.sampleControlHealth(context.Background())
-
-	st := r.e.Status()
-	if len(st.GatewayLatencyHistory) != 1 || st.GatewayLatencyHistory[0].MS != 51 ||
-		!st.GatewayLatencyHistory[0].At.Equal(r.now.Add(-7*time.Second)) {
-		t.Fatalf("unexpected gateway samples: %+v", st.GatewayLatencyHistory)
+	r.e.Tick(ctx)
+	if st := r.e.Status(); st.ControlStatus != "online" || st.State != StateConnected {
+		t.Fatalf("a reply from the control API confirms reachability: %+v", st)
 	}
-	if st.ControlHealthMs != 0 || st.ControlMs != 20 || len(st.ControlLatencyHistory) != 2 ||
-		st.ControlLatencyHistory[0].MS <= 0 || st.ControlLatencyHistory[1].MS != -1 ||
-		!st.ControlLatencyHistory[1].At.Equal(r.now) {
-		t.Fatalf("expected recorded health reply and failure without changing the heartbeat RTT: %+v", st)
+}
+
+func TestControlStatusIgnoresStaleAndOldNetworkResults(t *testing.T) {
+	r := newRig(t)
+	r.connect(t)
+	ctx := context.Background()
+	r.api.hbErr = func(bool) error {
+		r.e.mu.Lock()
+		r.e.netChangedAt = r.now
+		r.e.mu.Unlock()
+		return errNet
+	}
+	for range 2 {
+		r.advance(5 * time.Second)
+		r.e.Kick()
+		r.e.Tick(ctx)
+	}
+	if st := r.e.Status(); st.ControlStatus != "online" {
+		t.Fatalf("old network checks changed the control indicator: %+v", st)
+	}
+	r.advance(2 * time.Minute)
+	if st := r.e.Status(); st.ControlStatus != "checking" {
+		t.Fatalf("an old reply should stop asserting reachability: %+v", st)
 	}
 }
