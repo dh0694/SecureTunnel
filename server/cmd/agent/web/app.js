@@ -302,8 +302,6 @@ function renderStatus(st) {
   const office = !!st.office_mode && !rec;
   $("st-office").classList.toggle("hidden", !office);
   $("st-conn").classList.toggle("hidden", office);
-  $("conn-down-total").classList.toggle("hidden", office);
-  $("conn-up-total").classList.toggle("hidden", office);
   if (office) {
     $("st-dot").className = "dot info";
     $("st-dot").querySelector("use").setAttribute("href", "#i-building");
@@ -327,6 +325,8 @@ function renderStatus(st) {
   // Speed
   $("sp-down").textContent = fmtBps(st.rx_bps);
   $("sp-up").textContent = fmtBps(st.tx_bps);
+  $("conn-down").textContent = st.rx_bytes ? fmtBytes(st.rx_bytes) + " total" : "–";
+  $("conn-up").textContent = st.tx_bytes ? fmtBytes(st.tx_bytes) + " total" : "–";
   const rates = st.rate_history || [];
   chartData.rates = { values: rates, timing: chartTiming(st.rate_history_seconds, st.rate_latest_seconds) };
   drawRates(rates);
@@ -431,8 +431,6 @@ function renderStatus(st) {
   $("st-ip").textContent = st.tunnel_ip || "–";
   $("st-vpnip").textContent = (ips && ips.vpn_ip) || "–";
   $("st-ispip").textContent = (ips && ips.isp_ip) || "–";
-  $("conn-down").textContent = st.rx_bytes ? fmtBytes(st.rx_bytes) : "–";
-  $("conn-up").textContent = st.tx_bytes ? fmtBytes(st.tx_bytes) : "–";
 }
 
 function fmtBps(n) {

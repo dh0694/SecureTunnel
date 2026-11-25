@@ -101,10 +101,12 @@
               <div title="Current download speed through the VPN">
                 <span class="chart-reading-label"><span class="sw down" aria-hidden="true"></span>Download</span>
                 <strong id="sp-down">–</strong>
+                <span class="chart-reading-detail" id="conn-down" title="Data downloaded through the current VPN tunnel">–</span>
               </div>
               <div title="Current upload speed through the VPN">
                 <span class="chart-reading-label"><span class="sw up" aria-hidden="true"></span>Upload</span>
                 <strong id="sp-up">–</strong>
+                <span class="chart-reading-detail" id="conn-up" title="Data uploaded through the current VPN tunnel">–</span>
               </div>
             </div></div>
           <div id="lat-total"><div class="cap" id="lat-caption">Latency</div>
@@ -139,8 +141,6 @@
         <div class="kv"><div class="k">Tunnel IP</div><div class="v mono" id="st-ip"></div></div>
         <div class="kv"><div class="k">Public IP (VPN)</div><div class="v mono" id="st-vpnip">–</div></div>
         <div class="kv"><div class="k">Your ISP's IP</div><div class="v mono" id="st-ispip">–</div></div>
-        <div class="kv" id="conn-down-total" title="Data downloaded through the current VPN tunnel"><div class="k">VPN downloaded</div><div class="v" id="conn-down">–</div></div>
-        <div class="kv" id="conn-up-total" title="Data uploaded through the current VPN tunnel"><div class="k">VPN uploaded</div><div class="v" id="conn-up">–</div></div>
         <div class="kv" id="st-trust-wrap" title="The certificate this PC presented when you connected, if IT requires one."><div class="k">Certificate</div><div class="v" id="st-trust">–</div></div>
       </div>
 
