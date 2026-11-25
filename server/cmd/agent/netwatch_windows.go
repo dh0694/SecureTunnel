@@ -1,15 +1,12 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"sort"
 	"strings"
 
 	"golang.org/x/sys/windows"
 	"golang.zx2c4.com/wireguard/windows/tunnel/winipcfg"
-
-	"securetunnel/server/internal/agentcore"
 )
 
 // netFingerprint is the engine's NetFingerprint: the PC's own adapter
@@ -41,10 +38,15 @@ func physicalRouteAvailable() (available, known bool) {
 	return v6 != "", v6 != "" || (known4 && known6)
 }
 
-func preferredPhysicalRoute(family winipcfg.AddressFamily) (identity string, known bool) {
+func preferredPhysicalRoute(family winipcfg.AddressFamily) (string, bool) {
+	identity, _, known := preferredPhysicalRouteInfo(family)
+	return identity, known
+}
+
+func preferredPhysicalRouteInfo(family winipcfg.AddressFamily) (identity string, index int, known bool) {
 	routes, err := winipcfg.GetIPForwardTable2(family)
 	if err != nil {
-		return "", false
+		return "", 0, false
 	}
 
 	known = true
@@ -69,15 +71,8 @@ func preferredPhysicalRoute(family winipcfg.AddressFamily) (identity string, kno
 		}
 		key := fmt.Sprintf("%d@%s", route.InterfaceLUID, route.NextHop.Addr())
 		if metric < lowestMetric || (metric == lowestMetric && key < identity) {
-			identity, lowestMetric = key, metric
+			identity, index, lowestMetric = key, int(ifc.InterfaceIndex), metric
 		}
 	}
-	return identity, known
-}
-
-// onNetworkChange rechecks the public IP so the office check sees the new one.
-func (a *agentService) onNetworkChange(ctx context.Context, st agentcore.State) {
-	if a.ips != nil && (st == agentcore.StateConnected || st == agentcore.StateDisconnected) {
-		a.ips.refresh(ctx, st)
-	}
+	return identity, index, known
 }

@@ -122,9 +122,13 @@ func (a *agentService) Execute(_ []string, req <-chan svc.ChangeRequest, status 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	tun := &serviceTunnel{exe: exe, log: a.log}
+	a.upd = &updater{a: a}
+	a.speed = &speedTester{a: a}
+	a.ips = &ipTracker{a: a, tunnel: tun, wake: make(chan struct{}, 1)}
 	a.engine = agentcore.New(agentcore.Options{
 		NewAPI:     a.newAPI,
-		Tunnel:     &serviceTunnel{exe: exe, log: a.log},
+		Tunnel:     tun,
 		Store:      newStore(),
 		BootID:     bootID,
 		DeviceID:   deviceID(),
@@ -140,7 +144,6 @@ func (a *agentService) Execute(_ []string, req <-chan svc.ChangeRequest, status 
 		TrustedProbe:           func(ctx context.Context) (bool, string) { return a.officeProbe(ctx) },
 		NetFingerprint:         netFingerprint,
 		PhysicalRouteAvailable: physicalRouteAvailable,
-		OnNetworkChange:        func(ctx context.Context, st agentcore.State) { a.onNetworkChange(ctx, st) },
 		TrustMode: func() string {
 			s, _ := configuredServer()
 			if s == "" {
@@ -148,12 +151,16 @@ func (a *agentService) Execute(_ []string, req <-chan svc.ChangeRequest, status 
 			}
 			return string(a.trust(s).LastMode())
 		},
-		Log:            a.log,
-		Version:        version,
-		OnTunnelChange: a.resetConnections,
-		TrafficStats:   tunnelTraffic,
-		Ping:           icmpPing,
-		NetworkInfo:    cachedNetworkInfo,
+		Log:     a.log,
+		Version: version,
+		OnTunnelChange: func() {
+			a.resetConnections()
+			a.ips.invalidate()
+		},
+		OnStateChange: a.ips.invalidate,
+		TrafficStats:  tunnelTraffic,
+		Ping:          icmpPing,
+		NetworkInfo:   cachedNetworkInfo,
 		DiagExtra: func(d *clientapi.Diagnostics) {
 			a.fillDiagnostics(d)
 			d.WindowsUser = a.owner.get().Name
@@ -175,9 +182,6 @@ func (a *agentService) Execute(_ []string, req <-chan svc.ChangeRequest, status 
 		a.log.Error("open control pipe", "err", err)
 		return true, 1
 	}
-	a.upd = &updater{a: a}
-	a.speed = &speedTester{a: a}
-	a.ips = &ipTracker{a: a}
 	go servePipe(ln, a)
 	go a.upd.run(ctx)
 	go a.speed.loop(ctx)

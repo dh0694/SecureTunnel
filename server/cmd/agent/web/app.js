@@ -254,7 +254,7 @@ function showMetricSeverity(element, severity, detail) {
 }
 
 const vpnRecovery = new Map([
-  ["checking", ["Trying to reconnect…", "No action needed right now."]],
+  ["checking", ["Trying to reconnect…", ""]],
   ["waiting_for_network", ["Waiting for a network", "Connect to Wi-Fi or Ethernet to continue."]],
   ["repairing", ["Repairing the VPN…", "Restarting the tunnel on the current gateway."]],
   ["switching_gateway", ["Switching VPN gateways…", "Trying another VPN gateway."]],
@@ -305,7 +305,7 @@ function renderStatus(st) {
   if (office) {
     $("st-dot").className = "dot info";
     $("st-dot").querySelector("use").setAttribute("href", "#i-building");
-    $("st-title").textContent = "Connected · office mode";
+    $("st-title").textContent = "Connected · Office Mode";
     $("st-sub").textContent = "Signed in. The VPN is on standby.";
     $("st-office-text").textContent = "Your traffic goes through the office network" +
       (st.trusted_reason ? " (detected by " + st.trusted_reason + ")" : "") + ".";

@@ -215,6 +215,8 @@ type Options struct {
 	// OnTunnelChange runs after the tunnel goes up or down, so the HTTP client
 	// can drop connections that were opened over the previous route.
 	OnTunnelChange func()
+	// OnStateChange runs under the engine lock. It must not block or call back into the engine.
+	OnStateChange func()
 	// TrafficStats returns the tunnel adapter's byte counters (nil: not shown).
 	TrafficStats func() (rx, tx uint64, ok bool)
 	// NetworkInfo describes the physical network (nil: not shown).
@@ -777,7 +779,11 @@ func (e *Engine) setState(s State, msg string) {
 		}
 		e.drops = e.drops[cut:]
 	}
+	changed := e.state != s
 	e.state, e.message = s, msg
+	if changed && e.o.OnStateChange != nil {
+		e.o.OnStateChange()
+	}
 	if s != StateReconnecting {
 		e.vpnPhase = ""
 	}

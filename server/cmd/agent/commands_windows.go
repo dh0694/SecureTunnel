@@ -5,7 +5,6 @@ import (
 	"sync"
 	"time"
 
-	"securetunnel/server/internal/agentcore"
 	"securetunnel/server/internal/clientapi"
 )
 
@@ -54,11 +53,9 @@ func (a *agentService) handleCommands(cmds []clientapi.Command) {
 		case "speedtest":
 			a.speed.start(false)
 		case "diagnostics":
-			// Refresh public IPs, then send a heartbeat (which carries the diagnostics).
+			// Refresh public IPs in the background and send a diagnostics heartbeat.
 			if a.ips != nil {
-				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-				a.ips.refresh(ctx, agentcore.StateConnected)
-				cancel()
+				a.ips.requestRefresh()
 			}
 			a.engine.Kick()
 		case "move":

@@ -25,16 +25,28 @@ type IPInfo struct {
 	CheckedAt time.Time `json:"checked_at"`
 }
 
-// ipTracker looks up public IPs about once a minute and whenever the
-// connection state changes. While connected, the VPN IP is looked up through
-// the tunnel and the ISP IP outside it (via the tunnel process, like the
-// speed test); while disconnected there is only the ISP IP.
-type ipTracker struct {
-	a *agentService
+const (
+	publicIPTimeout = 6 * time.Second
+	publicIPRetry   = 3 * time.Second
+	publicIPRefresh = time.Minute
+)
 
-	mu        sync.Mutex
-	info      IPInfo
-	lastState agentcore.State
+type ipLookup struct {
+	next   time.Time
+	cancel context.CancelFunc
+}
+
+// ipTracker publishes each address independently. Network and tunnel changes
+// invalidate pending lookups so a result from the old route cannot be shown.
+type ipTracker struct {
+	a      *agentService
+	tunnel *serviceTunnel
+	wake   chan struct{}
+
+	mu         sync.Mutex
+	info       IPInfo
+	generation uint64
+	vpn, isp   ipLookup
 }
 
 func (t *ipTracker) get() IPInfo {
@@ -43,45 +55,116 @@ func (t *ipTracker) get() IPInfo {
 	return t.info
 }
 
-func (t *ipTracker) loop(ctx context.Context) {
-	tick := time.NewTicker(10 * time.Second)
-	defer tick.Stop()
-	for {
-		st := t.a.engine.Status().State
-		t.mu.Lock()
-		stale := time.Since(t.info.CheckedAt) > 60*time.Second || st != t.lastState
-		t.mu.Unlock()
-		if stale && (st == agentcore.StateConnected || st == agentcore.StateDisconnected) {
-			t.refresh(ctx, st)
+func (t *ipTracker) notify() {
+	select {
+	case t.wake <- struct{}{}:
+	default:
+	}
+}
+
+func (t *ipTracker) invalidate() {
+	t.mu.Lock()
+	t.generation++
+	t.info = IPInfo{}
+	for _, lookup := range []*ipLookup{&t.vpn, &t.isp} {
+		if lookup.cancel != nil {
+			lookup.cancel()
 		}
+		*lookup = ipLookup{}
+	}
+	t.mu.Unlock()
+	t.notify()
+}
+
+func (t *ipTracker) requestRefresh() {
+	t.mu.Lock()
+	t.vpn.next, t.isp.next = time.Time{}, time.Time{}
+	t.mu.Unlock()
+	t.notify()
+}
+
+func (t *ipTracker) loop(ctx context.Context) {
+	tick := time.NewTicker(publicIPRetry)
+	defer tick.Stop()
+	for ctx.Err() == nil {
+		t.refresh(ctx)
 		select {
 		case <-ctx.Done():
 			return
 		case <-tick.C:
+		case <-t.wake:
 		}
 	}
 }
 
-func (t *ipTracker) refresh(ctx context.Context, st agentcore.State) {
-	host := t.a.speed.policy().Host
-	var info IPInfo
-	lctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	direct := &http.Client{Timeout: 15 * time.Second}
-	if st == agentcore.StateConnected {
-		if ip, err := speedtest.PublicIP(lctx, direct, host); err == nil {
-			info.VPNIP = ip // routed through the tunnel
-		}
-		if ip, err := bypassIP(host); err == nil {
-			info.ISPIP = ip
-		}
-	} else if ip, err := speedtest.PublicIP(lctx, direct, host); err == nil {
-		info.ISPIP = ip
-	}
-	info.CheckedAt = time.Now()
+func (t *ipTracker) refresh(ctx context.Context) {
 	t.mu.Lock()
-	t.info, t.lastState = info, st
+	generation := t.generation
 	t.mu.Unlock()
+
+	st := t.a.engine.Status()
+	if st.State != agentcore.StateConnected && st.State != agentcore.StateDisconnected {
+		return
+	}
+	running := t.tunnel.Running()
+	vpn := st.State == agentcore.StateConnected && !st.OfficeMode
+	if vpn && !running {
+		return
+	}
+	host := t.a.speed.policy().Host
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if generation != t.generation {
+		return
+	}
+	if vpn {
+		t.start(ctx, &t.vpn, &t.info.VPNIP, host, false)
+	}
+	t.start(ctx, &t.isp, &t.info.ISPIP, host, running)
+}
+
+// start runs with mu held. The lookup's context and generation belong to one
+// route so completion can update only the field it actually measured.
+func (t *ipTracker) start(ctx context.Context, lookup *ipLookup, field *string, host string, bypass bool) {
+	if lookup.cancel != nil || time.Now().Before(lookup.next) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, publicIPTimeout)
+	lookup.cancel = cancel
+	generation := t.generation
+	go func() {
+		defer cancel()
+		var ip string
+		var err error
+		if bypass {
+			ip, err = bypassIP(ctx, host)
+		} else {
+			client := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
+			ip, err = speedtest.PublicIP(ctx, client, host)
+		}
+
+		t.mu.Lock()
+		if generation != t.generation {
+			t.mu.Unlock()
+			return
+		}
+		lookup.cancel = nil
+		now := time.Now()
+		changed := false
+		if err != nil || ip == "" {
+			lookup.next = now.Add(publicIPRetry)
+		} else {
+			lookup.next = now.Add(publicIPRefresh)
+			changed = ip != *field
+			*field = ip
+			t.info.CheckedAt = now
+		}
+		t.mu.Unlock()
+		if changed {
+			t.a.engine.Kick()
+		}
+	}()
 }
 
 // fillDiagnostics adds the Windows-side details to the heartbeat report.

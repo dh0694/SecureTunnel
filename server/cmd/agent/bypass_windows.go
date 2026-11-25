@@ -102,13 +102,13 @@ func bypassPublicIP(host string) (string, error) {
 	if host == "" || strings.ContainsAny(host, "/:@ ?#") {
 		return "", errors.New("invalid host")
 	}
-	ifc := physicalInterface()
-	if ifc == nil {
+	_, index, _ := preferredPhysicalRouteInfo(windows.AF_INET)
+	if index == 0 {
 		return "", errors.New("no physical network adapter found")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), publicIPTimeout)
 	defer cancel()
-	return speedtest.PublicIP(ctx, physicalClient(ifc.Index), host)
+	return speedtest.PublicIP(ctx, physicalClient(index), host)
 }
 
 func clampBytes(n int) int {
@@ -177,14 +177,19 @@ func bypassCall(req bypassRequest) (speedtest.Result, error) {
 }
 
 // bypassIP asks the tunnel process for the ISP public IP (outside the tunnel).
-func bypassIP(host string) (string, error) {
-	dial := 3 * time.Second
-	c, err := winio.DialPipe(bypassPipe, &dial)
+func bypassIP(ctx context.Context, host string) (string, error) {
+	dialCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	c, err := winio.DialPipeContext(dialCtx, bypassPipe)
 	if err != nil {
 		return "", err
 	}
 	defer c.Close()
-	_ = c.SetDeadline(time.Now().Add(20 * time.Second))
+	if deadline, ok := ctx.Deadline(); ok {
+		_ = c.SetDeadline(deadline)
+	}
+	stop := context.AfterFunc(ctx, func() { _ = c.Close() })
+	defer stop()
 	if err := json.NewEncoder(c).Encode(bypassRequest{Kind: "ip", Host: host}); err != nil {
 		return "", err
 	}
