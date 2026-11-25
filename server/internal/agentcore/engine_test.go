@@ -3,6 +3,7 @@ package agentcore
 import (
 	"context"
 	"errors"
+	"net/netip"
 	"strings"
 	"sync"
 	"testing"
@@ -674,5 +675,115 @@ func TestOldHeartbeatCannotTearDownReplacement(t *testing.T) {
 	}
 	if st := r.e.Status(); st.State != StateConnected || !r.tun.Running() {
 		t.Fatalf("old heartbeat changed replacement: state %s, running %v", st.State, r.tun.Running())
+	}
+}
+
+func TestRoamingKeepsWorkingTunnelWhenHeartbeatFails(t *testing.T) {
+	r := newRig(t)
+	r.connect(t)
+	r.e.sess.Placement.Gateway.InsideIP = "10.200.0.1"
+	r.e.o.Ping = func(_ context.Context, source, ip netip.Addr, _ time.Duration) (time.Duration, error) {
+		if source.String() != "10.200.0.2" || ip.String() != "10.200.0.1" {
+			t.Errorf("unexpected probe: %s to %s", source, ip)
+		}
+		return 20 * time.Millisecond, nil
+	}
+	r.api.hbErr = func(bool) error { return errors.New("control server down") }
+	r.e.netKick = true
+	ups := r.tun.ups
+	r.advance(16 * time.Minute)
+	r.e.Kick()
+	r.e.Tick(context.Background())
+	if r.e.Status().State != StateConnected || r.tun.ups != ups || r.api.failovers != 0 {
+		t.Fatal("a working tunnel was disrupted after a missed heartbeat")
+	}
+
+	r.now = r.e.sess.Placement.ExpiresAt
+	r.e.Kick()
+	r.e.Tick(context.Background())
+	if r.e.Status().State != StateDisconnected || r.tun.Running() {
+		t.Fatal("a working tunnel survived the absolute session expiry")
+	}
+}
+
+func TestRoamingWaitsForRouteAndRepairsSameAssignment(t *testing.T) {
+	r := newRig(t)
+	r.connect(t)
+	r.e.sess.Placement.Gateway.InsideIP = "10.200.0.1"
+	routeAvailable := false
+	r.e.o.PhysicalRouteAvailable = func() (bool, bool) { return routeAvailable, true }
+	r.e.o.Ping = func(context.Context, netip.Addr, netip.Addr, time.Duration) (time.Duration, error) {
+		return 0, errors.New("no probe reply")
+	}
+	r.api.hbErr = func(bool) error { return errors.New("control server unreachable") }
+	r.e.netKick = true
+	ups, original := r.tun.ups, r.tun.cfg.WGQuick()
+	r.advance(5 * time.Second)
+	r.e.Kick()
+	r.e.Tick(context.Background())
+	if r.tun.ups != ups || r.api.failovers != 0 {
+		t.Fatal("changed the tunnel before a physical route was available")
+	}
+
+	routeAvailable = true
+	r.advance(5 * time.Second)
+	r.e.Kick()
+	r.e.Tick(context.Background())
+	if r.tun.ups != ups+1 || r.tun.cfg.WGQuick() != original || r.api.failovers != 0 {
+		t.Fatal("roaming repair did not preserve the existing assignment")
+	}
+}
+
+func TestPathDetectionRequiresConsecutiveMissesAfterFirstReply(t *testing.T) {
+	e := newRig(t).e
+	for i := 0; i < pathFailureThreshold*2; i++ {
+		if e.observePath(false) {
+			t.Fatal("an unconfirmed ICMP target triggered recovery")
+		}
+	}
+	e.observePath(true)
+	for i := 1; i < pathFailureThreshold; i++ {
+		if e.observePath(false) {
+			t.Fatal("started recovery early")
+		}
+	}
+	e.observePath(true)
+	if e.observePath(false) {
+		t.Fatal("a successful reply did not reset the failure streak")
+	}
+	for i := 2; i < pathFailureThreshold; i++ {
+		e.observePath(false)
+	}
+	if !e.observePath(false) || e.observePath(false) {
+		t.Fatal("the threshold should trigger recovery exactly once per failure streak")
+	}
+}
+
+func TestRoamingTriesLocalRepairBeforeMovingGateway(t *testing.T) {
+	r := newRig(t)
+	r.connect(t)
+	r.e.sess.Placement.Gateway.InsideIP = "10.200.0.1"
+	r.e.sess.Placement.Alternates = []clientapi.Gateway{{ID: "gw-b"}}
+	r.e.o.Ping = func(context.Context, netip.Addr, netip.Addr, time.Duration) (time.Duration, error) {
+		return 0, errors.New("no probe reply")
+	}
+	r.api.hbErr = func(tunnelUp bool) error {
+		if tunnelUp {
+			return errors.New("control server unreachable through tunnel")
+		}
+		return nil
+	}
+	r.e.netKick = true
+	ups := r.tun.ups
+	r.advance(5 * time.Second)
+	r.e.Kick()
+	r.e.Tick(context.Background())
+	if r.tun.ups != ups+1 || r.api.failovers != 0 {
+		t.Fatal("expected one local repair with no gateway move")
+	}
+	r.advance(netRebuildAfter)
+	r.e.Tick(context.Background())
+	if r.api.failovers != 1 || r.e.Status().Gateway != "gw-b" {
+		t.Fatal("expected gateway failover after local repair and continued probe loss")
 	}
 }

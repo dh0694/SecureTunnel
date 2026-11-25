@@ -182,14 +182,15 @@ type Options struct {
 	// (addresses, DNS suffixes; not the tunnel). When it changes and settles,
 	// OnNetworkChange runs (e.g. recheck the public IP), then the office check
 	// and a heartbeat run at once. nil: timers only.
-	NetFingerprint  func() string
-	OnNetworkChange func(ctx context.Context, st State)
-	TrustMode       func() string // how the server's certificate is trusted, for display
-	Now             func() time.Time
-	Log             *slog.Logger
-	Version         string
-	FailoverAfter   time.Duration // heartbeat outage before trying another gateway (default 60s)
-	RetryEvery      time.Duration // heartbeat retry while reconnecting (default 5s)
+	NetFingerprint         func() string
+	PhysicalRouteAvailable func() (available, known bool)
+	OnNetworkChange        func(ctx context.Context, st State)
+	TrustMode              func() string // how the server's certificate is trusted, for display
+	Now                    func() time.Time
+	Log                    *slog.Logger
+	Version                string
+	FailoverAfter          time.Duration // heartbeat outage before trying another gateway (default 60s)
+	RetryEvery             time.Duration // heartbeat retry while reconnecting (default 5s)
 	// ReconnectingAfter is how long without a successful heartbeat before the
 	// GUI shows "Reconnecting", so a single slow check doesn't alarm anyone (default 20s).
 	ReconnectingAfter time.Duration
@@ -213,7 +214,7 @@ type Options struct {
 	DeviceTunnel func() bool
 	// Ping sends one ICMP echo and returns the round trip (nil: latency comes
 	// from heartbeats to the control server instead).
-	Ping func(ctx context.Context, ip netip.Addr, timeout time.Duration) (time.Duration, error)
+	Ping func(ctx context.Context, source, ip netip.Addr, timeout time.Duration) (time.Duration, error)
 }
 
 // Gateway pings: one every pingEvery; jitter and loss use the last
@@ -260,12 +261,15 @@ type Engine struct {
 	commandSession *Session
 	commandAcks    map[string]bool // false while dispatch is in progress
 	standby        bool            // office mode: the session stays, the tunnel is down
-	netKick        bool            // the network just changed: a failed heartbeat restarts the tunnel at once
-	netChangedAt   time.Time       // last network change (cleared once a heartbeat gets through)
-	busy           bool            // a connect or disconnect is in progress
-	forceHB        bool            // heartbeat now (the watch saw the session end)
-	moveTo         *string         // admin asked to move to this gateway ("" = best other)
-	drops          []time.Time     // when the connection went from connected to reconnecting
+	netKick        bool            // a settled physical network change needs a path check
+	netChangedAt   time.Time
+	pathConfirmed  bool // this gateway has answered a data probe
+	pathMisses     int
+	pathRepairedAt time.Time
+	busy           bool        // a connect or disconnect is in progress
+	forceHB        bool        // heartbeat now (the watch saw the session end)
+	moveTo         *string     // admin asked to move to this gateway ("" = best other)
+	drops          []time.Time // when the connection went from connected to reconnecting
 
 	devBusy    bool      // a device tunnel connect is in progress
 	devNext    time.Time // don't try the device tunnel again before this
@@ -390,10 +394,10 @@ func (e *Engine) pingLoop(ctx context.Context) {
 		e.mu.Lock()
 		s, st := e.sess, e.state
 		ok := e.pinging(s) && (st == StateConnected || st == StateReconnecting)
-		var ip netip.Addr
+		var source, ip netip.Addr
 		if ok {
 			now := e.o.Now()
-			ip, _ = netip.ParseAddr(s.Placement.Gateway.InsideIP)
+			source, ip = tunnelProbeAddresses(s)
 			if gw := s.Placement.Gateway.ID; gw != lastGW { // moved: start the figures fresh
 				e.pingHist, lastGW = nil, gw
 				warmUntil = now.Add(statsWarmup)
@@ -406,12 +410,14 @@ func (e *Engine) pingLoop(ctx context.Context) {
 			}
 		}
 		e.mu.Unlock()
-		if !ok || !ip.IsValid() {
+		if !ok || !source.IsValid() || !ip.IsValid() {
 			continue
 		}
-		rtt, err := e.o.Ping(ctx, ip, pingTimeout)
+		rtt, err := e.o.Ping(ctx, source, ip, pingTimeout)
 		e.mu.Lock()
-		if e.sess == s {
+		checkPath := false
+		if e.sess == s && s.Placement.Gateway.InsideIP == ip.String() && !e.standby {
+			checkPath = e.observePath(err == nil)
 			ms := -1
 			if err == nil {
 				ms, e.latency = int(rtt/time.Millisecond), rtt
@@ -425,6 +431,9 @@ func (e *Engine) pingLoop(ctx context.Context) {
 			}
 		}
 		e.mu.Unlock()
+		if checkPath {
+			e.Kick()
+		}
 	}
 }
 
@@ -869,6 +878,7 @@ func (e *Engine) connect(ctx context.Context, user string, signIn func(API) (str
 	e.mu.Lock()
 	e.sess, e.busy, e.lastHB = s, false, now
 	e.tunnelPending = false
+	e.resetPath()
 	e.resetStats()
 	e.setState(StateConnected, "")
 	e.mu.Unlock()
@@ -967,6 +977,8 @@ func (e *Engine) teardown(msg string) {
 	e.mu.Lock()
 	e.sess = nil
 	e.tunnelPending = false
+	e.resetPath()
+	e.netKick, e.netChangedAt = false, time.Time{}
 	e.moveTo = nil
 	e.standby = false
 	e.latency = 0
@@ -1150,7 +1162,20 @@ func (e *Engine) Tick(ctx context.Context) time.Duration {
 	}
 
 	// Retry failed local setup even when the control API is currently unreachable.
-	tunnelReady := e.ensureTunnel(s)
+	route := e.physicalRouteAvailable()
+	tunnelReady := e.standby || (!e.tunnelPending && e.o.Tunnel.Running())
+	if route || e.standby {
+		tunnelReady = e.ensureTunnel(s)
+	}
+	e.mu.Lock()
+	changedAt := e.netChangedAt
+	roaming := e.netKick
+	checkPath := roaming || e.pathMisses >= pathFailureThreshold
+	e.mu.Unlock()
+	path := pathUnknown
+	if checkPath && route {
+		path = e.checkTunnelPath(ctx, s, pathFailureThreshold)
+	}
 	diag := e.diagnostics()
 	e.lifecycleMu.Unlock()
 	hctx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -1163,11 +1188,20 @@ func (e *Engine) Tick(ctx context.Context) time.Duration {
 	if !current {
 		return time.Second
 	}
+	e.mu.Lock()
+	networkChanged := !e.netChangedAt.Equal(changedAt)
+	e.mu.Unlock()
+	if networkChanged && !clientapi.IsReauth(err) {
+		// The watcher queued another check. Do not repair a path based on
+		// probes collected before the latest network change.
+		return time.Second
+	}
 	now := e.o.Now()
 	switch {
 	case err == nil:
 		e.acceptCommands(s, p.Commands, sent)
 		if e.updatePlacement(s, p) {
+			path = pathUnknown // a probe of the previous assignment no longer applies
 			// A new placement can arrive with this heartbeat. Apply it now.
 			tunnelReady = e.ensureTunnel(s)
 		}
@@ -1176,17 +1210,29 @@ func (e *Engine) Tick(ctx context.Context) time.Duration {
 			e.o.Log.Info("connection restored", "offline_for", now.Sub(s.LastOK).Round(time.Second))
 		}
 		s.LastOK = now
-		e.netKick, e.netChangedAt = false, time.Time{}
+		if path == pathDown && !e.pathConfirmed {
+			path = pathUnknown // ICMP has never been established on this gateway
+		}
+		if !p.ExpiresAt.IsZero() {
+			s.Placement.ExpiresAt = p.ExpiresAt
+		}
+		if path != pathDown && e.netChangedAt.Equal(changedAt) {
+			e.netKick, e.netChangedAt = false, time.Time{}
+		}
 		e.lastHB, e.ctrlRTT = now, rtt
 		if !e.pinging(s) && now.Sub(s.ConnectedSince) >= statsWarmup {
 			e.latency = rtt
 			e.recordHB(int(rtt / time.Millisecond))
 		}
-		if tunnelReady {
+		if tunnelReady && path != pathDown {
 			e.setState(StateConnected, "")
 		}
 		e.mu.Unlock()
 		e.saveSession(s)
+		if path == pathDown {
+			e.handlePathFailure(ctx, s)
+			return e.o.RetryEvery
+		}
 		if !tunnelReady {
 			return e.o.RetryEvery
 		}
@@ -1197,17 +1243,37 @@ func (e *Engine) Tick(ctx context.Context) time.Duration {
 		return 30 * time.Second
 	}
 
-	// The network just changed and the tunnel isn't getting through: restart
-	// it now so it binds to the new network, instead of waiting for recovery.
-	e.mu.Lock()
-	nk, sb := e.netKick, e.standby
-	e.netKick = false
-	e.mu.Unlock()
-	if nk && !sb && !s.Device {
-		e.o.Log.Info("heartbeat failed after a network change: restarting the tunnel", "err", err)
-		_ = e.tunnelDown()
-		e.tunnelPending = true
-		e.ensureTunnel(s)
+	if path == pathUnknown {
+		path = e.checkTunnelPath(ctx, s, 1)
+	}
+	if path == pathWorking {
+		e.mu.Lock()
+		if e.netChangedAt.Equal(changedAt) {
+			e.netKick, e.netChangedAt = false, time.Time{}
+		}
+		e.mu.Unlock()
+		expiry := s.Placement.ExpiresAt
+		if expiry.IsZero() {
+			expiry = s.LastOK.Add(e.grace(s))
+		}
+		if !now.Before(expiry) {
+			e.teardown("Your session expired. Sign in again to reconnect.")
+			return 30 * time.Second
+		}
+		e.mu.Lock()
+		e.setState(StateConnected, "")
+		e.mu.Unlock()
+		return e.o.RetryEvery
+	}
+
+	// An older gateway may not advertise an inside probe address.
+	if route && path == pathUnknown && roaming && !e.standby && !s.Device {
+		e.mu.Lock()
+		if e.netChangedAt.Equal(changedAt) {
+			e.netKick = false
+		}
+		e.mu.Unlock()
+		e.repairTunnel(s)
 		return time.Second
 	}
 
@@ -1231,17 +1297,19 @@ func (e *Engine) Tick(ctx context.Context) time.Duration {
 	} else if e.sess == s && down >= e.o.ReconnectingAfter {
 		e.setState(StateReconnecting, "")
 	}
-	tryRecovery := down >= e.o.FailoverAfter && now.Sub(e.lastRecover) >= e.o.FailoverAfter
+	tryRecovery := route && path == pathUnknown && down >= e.o.FailoverAfter && now.Sub(e.lastRecover) >= e.o.FailoverAfter
 	// Network changed, the quick tunnel restart didn't help: rebuild now
 	// (another gateway and tunnel IP if need be) instead of waiting.
-	if switching && now.Sub(e.netChangedAt) >= netRebuildAfter && e.lastRecover.Before(e.netChangedAt) {
+	if route && path == pathUnknown && switching && now.Sub(e.netChangedAt) >= netRebuildAfter && e.lastRecover.Before(e.netChangedAt) {
 		tryRecovery = true
 	}
 	if tryRecovery {
 		e.lastRecover = now
 	}
 	e.mu.Unlock()
-	if tryRecovery {
+	if route && path == pathDown {
+		e.handlePathFailure(ctx, s)
+	} else if tryRecovery {
 		e.recover(ctx, s)
 	}
 	return e.o.RetryEvery
@@ -1315,6 +1383,9 @@ func (e *Engine) updatePlacement(s *Session, p clientapi.Placement) bool {
 		s.Placement.Tunnel = p.Tunnel
 	}
 	changed := oldConfig != tunnelConfig(s.PrivateKey, s.Placement).WGQuick()
+	if changed {
+		e.resetPath()
+	}
 	e.tunnelPending = e.tunnelPending || changed
 	return changed
 }

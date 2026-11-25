@@ -48,7 +48,7 @@ func (e *Engine) netCheck(ctx context.Context, last *string, changedAt *time.Tim
 		e.o.OnTunnelChange()
 	}
 	e.mu.Lock()
-	e.netKick = true // if this heartbeat fails, restart the tunnel right away
+	e.netKick = true // check the tunnel on the settled route before repairing it
 	e.netChangedAt = e.o.Now()
 	e.mu.Unlock()
 	e.Kick() // office check + heartbeat now, without waiting for the public IP

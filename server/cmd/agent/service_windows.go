@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"strings"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -11,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 	"unsafe"
@@ -123,13 +123,13 @@ func (a *agentService) Execute(_ []string, req <-chan svc.ChangeRequest, status 
 	defer cancel()
 
 	a.engine = agentcore.New(agentcore.Options{
-		NewAPI:   a.newAPI,
-		Tunnel:   &serviceTunnel{exe: exe, log: a.log},
-		Store:    newStore(),
-		BootID:   bootID,
-		DeviceID: deviceID(),
+		NewAPI:     a.newAPI,
+		Tunnel:     &serviceTunnel{exe: exe, log: a.log},
+		Store:      newStore(),
+		BootID:     bootID,
+		DeviceID:   deviceID(),
 		DeviceName: deviceName(),
-		Platform: "windows",
+		Platform:   "windows",
 		KeyGen: func() (string, string, error) {
 			k, err := wgtypes.GeneratePrivateKey()
 			if err != nil {
@@ -137,9 +137,10 @@ func (a *agentService) Execute(_ []string, req <-chan svc.ChangeRequest, status 
 			}
 			return k.String(), k.PublicKey().String(), nil
 		},
-		TrustedProbe: func(ctx context.Context) (bool, string) { return a.officeProbe(ctx) },
-		NetFingerprint:  netFingerprint,
-		OnNetworkChange: func(ctx context.Context, st agentcore.State) { a.onNetworkChange(ctx, st) },
+		TrustedProbe:           func(ctx context.Context) (bool, string) { return a.officeProbe(ctx) },
+		NetFingerprint:         netFingerprint,
+		PhysicalRouteAvailable: physicalRouteAvailable,
+		OnNetworkChange:        func(ctx context.Context, st agentcore.State) { a.onNetworkChange(ctx, st) },
 		TrustMode: func() string {
 			s, _ := configuredServer()
 			if s == "" {
@@ -157,9 +158,9 @@ func (a *agentService) Execute(_ []string, req <-chan svc.ChangeRequest, status 
 			a.fillDiagnostics(d)
 			d.WindowsUser = a.owner.get().Name
 		},
-		OnCommands:     a.handleCommands,
-		DeviceProof:    a.deviceProof,
-		DeviceTunnel:   deviceTunnelAllowed,
+		OnCommands:   a.handleCommands,
+		DeviceProof:  a.deviceProof,
+		DeviceTunnel: deviceTunnelAllowed,
 	})
 	if s, locked := configuredServer(); s != "" {
 		_ = a.engine.SetServer(s, locked)
@@ -211,7 +212,9 @@ func (a *agentService) Execute(_ []string, req <-chan svc.ChangeRequest, status 
 // diagnose runs the checks shown on the Diagnose tab.
 func (a *agentService) diagnose(ctx context.Context) []diagItem {
 	var out []diagItem
-	add := func(name string, ok bool, detail string) { out = append(out, diagItem{Name: name, OK: ok, Detail: detail}) }
+	add := func(name string, ok bool, detail string) {
+		out = append(out, diagItem{Name: name, OK: ok, Detail: detail})
+	}
 
 	server, locked := configuredServer()
 	if server == "" {
