@@ -510,6 +510,30 @@ func TestArrivingAtOfficeGoesOnStandby(t *testing.T) {
 	}
 }
 
+func TestReconnectingEntersOfficeWhenControlHeartbeatFails(t *testing.T) {
+	r := newRig(t)
+	r.connect(t)
+	r.api.hbErr = func(bool) error { return errNet }
+	r.e.o.TrustedProbe = func(context.Context) (bool, string) { return true, "public IP" }
+	r.advance(30 * time.Second)
+	r.e.mu.Lock()
+	r.e.setState(StateReconnecting, "Trying to reconnect…")
+	r.e.netKick, r.e.netChangedAt = true, r.now
+	r.e.mu.Unlock()
+
+	for i := 0; i < 4; i++ {
+		wait := r.e.Tick(context.Background())
+		st := r.e.Status()
+		if st.State != StateConnected || !st.OfficeMode || st.VPNPhase != "" || r.tun.Running() {
+			t.Fatalf("trusted route should keep the tunnel on standby: %+v", st)
+		}
+		r.advance(wait)
+	}
+	if r.tun.ups != 1 || r.api.failovers != 0 {
+		t.Fatalf("office recovery restarted the tunnel or failed over: ups=%d failovers=%d", r.tun.ups, r.api.failovers)
+	}
+}
+
 func TestGatewayReplyClearsReconnectingBeforeHeartbeat(t *testing.T) {
 	r := newRig(t)
 	r.connect(t)

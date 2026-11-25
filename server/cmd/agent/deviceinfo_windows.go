@@ -115,14 +115,14 @@ func (t *ipTracker) refresh(ctx context.Context) {
 	t.mu.Unlock()
 
 	st := t.a.engine.Status()
-	if st.State != agentcore.StateConnected && st.State != agentcore.StateDisconnected {
+	// The physical IP can be the evidence that lets a reconnecting session
+	// recognize the office. It must be refreshed during recovery as well.
+	if st.State != agentcore.StateConnected && st.State != agentcore.StateDisconnected && st.State != agentcore.StateReconnecting {
 		return
 	}
 	running := t.tunnel.Running()
 	vpn := st.State == agentcore.StateConnected && !st.OfficeMode
-	if vpn && !running {
-		return
-	}
+	vpn = vpn && running
 	host := t.a.speed.policy().Host
 	network := netFingerprint()
 

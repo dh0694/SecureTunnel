@@ -1436,6 +1436,18 @@ func (e *Engine) Tick(ctx context.Context) time.Duration {
 		e.teardown("Your connection was down for more than 15 minutes. Sign in again to reconnect.")
 		return 30 * time.Second
 	}
+	// Office network evidence is independent of the control heartbeat. Once
+	// the tunnel is down on a trusted route, keep the session on standby
+	// during its grace window instead of trying to repair that tunnel.
+	if e.standby && tunnelReady && route {
+		e.mu.Lock()
+		if e.netChangedAt.Equal(changedAt) {
+			e.netKick, e.netChangedAt = false, time.Time{}
+		}
+		e.setState(StateConnected, "")
+		e.mu.Unlock()
+		return e.o.RetryEvery
+	}
 	e.mu.Lock()
 	// Only show "Reconnecting" once contact has been lost for a while: one
 	// slow or failed check (e.g. while routes settle) isn't worth alarming anyone.
@@ -1446,10 +1458,10 @@ func (e *Engine) Tick(ctx context.Context) time.Duration {
 	} else if e.sess == s && down >= e.o.ReconnectingAfter {
 		e.setState(StateReconnecting, "")
 	}
-	tryRecovery := route && path == pathUnknown && down >= e.o.FailoverAfter && now.Sub(e.lastRecover) >= e.o.FailoverAfter
+	tryRecovery := route && !e.standby && path == pathUnknown && down >= e.o.FailoverAfter && now.Sub(e.lastRecover) >= e.o.FailoverAfter
 	// Network changed, the quick tunnel restart didn't help: rebuild now
 	// (another gateway and tunnel IP if need be) instead of waiting.
-	if route && path == pathUnknown && switching && now.Sub(e.netChangedAt) >= netRebuildAfter && e.lastRecover.Before(e.netChangedAt) {
+	if route && !e.standby && path == pathUnknown && switching && now.Sub(e.netChangedAt) >= netRebuildAfter && e.lastRecover.Before(e.netChangedAt) {
 		tryRecovery = true
 	}
 	if tryRecovery {
