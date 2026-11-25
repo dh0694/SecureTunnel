@@ -1,0 +1,84 @@
+# SecureTunnel proof-of-concept stack for a single Ubuntu host.
+# Run ./setup.sh first: it creates .env, the TLS certificate, the gateway key and
+# token, and data/gateways.json, then starts this stack.
+
+name: securetunnel
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: securetunnel
+      POSTGRES_USER: securetunnel
+      POSTGRES_PASSWORD: ${PG_PASSWORD:?run setup.sh first}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U securetunnel -d securetunnel"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  control:
+    build: ../server
+    image: securetunnel:latest
+    restart: unless-stopped
+    user: "65532:65532"
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8443:8443"
+    environment:
+      ST_LISTEN: ":8443"
+      ST_HOST_LABEL: ${HOST_LABEL:-securetunnel-control}
+      ST_TLS_CERT: /etc/securetunnel/tls/tls.crt
+      ST_TLS_KEY: /etc/securetunnel/tls/tls.key
+      ST_DATABASE_URL: postgres://securetunnel:${PG_PASSWORD}@db:5432/securetunnel?sslmode=disable
+      ST_SECRET_KEY: ${ST_SECRET_KEY:?run setup.sh first}
+      ST_GATEWAYS_FILE: /etc/securetunnel/gateways.json
+      # Address clients use (e.g. your Cloudflare hostname); baked into the
+      # Windows download. Defaults to https://<host the request came in on>.
+      ST_PUBLIC_URL: ${PUBLIC_URL:-}
+      ST_BOOTSTRAP_ADMIN_USER: admin
+      ST_BOOTSTRAP_ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      ST_LOCAL_AUTH: "true"
+      ST_LOCAL_REQUIRE_TOTP: ${LOCAL_REQUIRE_TOTP:-false}
+      ST_DNS_SERVERS: ${TUNNEL_DNS:-1.1.1.1,9.9.9.9}
+      ST_ALLOWED_IPS: ${TUNNEL_ALLOWED_IPS:-0.0.0.0/0,::/0}
+      # Entra (optional): set both to also accept Entra tokens on connect.
+      ST_TENANT_ID: ${ENTRA_TENANT_ID:-}
+      ST_API_AUDIENCE: ${ENTRA_API_AUDIENCE:-}
+    volumes:
+      - ./data/tls:/etc/securetunnel/tls:ro
+      - ./data/gateways.json:/etc/securetunnel/gateways.json:ro
+
+  gateway:
+    image: securetunnel:latest
+    restart: unless-stopped
+    depends_on:
+      - control
+    command: ["gatewayagent"]
+    # Host networking so the agent creates and manages wg0 on the host itself.
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+    environment:
+      GA_CONTROL_URL: https://127.0.0.1:8443
+      GA_CA_FILE: /etc/securetunnel/tls/tls.crt
+      GA_TOKEN_FILE: /etc/securetunnel/gateway/token
+      GA_PRIVATE_KEY_FILE: /etc/securetunnel/gateway/private.key
+      GA_INTERFACE: wg0
+      GA_LISTEN_PORT: "51820"
+      # Lab only: masquerade tunnel traffic out this interface. Leave empty in
+      # production, where the core network routes the client pool to the gateway.
+      GA_LAB_NAT_IFACE: ${LAB_NAT_IFACE:-}
+    volumes:
+      - ./data/tls/tls.crt:/etc/securetunnel/tls/tls.crt:ro
+      - ./data/gateway:/etc/securetunnel/gateway:ro
+      - gwstate:/var/lib/securetunnel
+
+volumes:
+  pgdata:
+  gwstate:

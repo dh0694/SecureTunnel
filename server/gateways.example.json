@@ -1,0 +1,22 @@
+[
+  {
+    "id": "dc-pair",
+    "site": "datacenter",
+    "endpoint": "vpn-dc.example.com:51820",
+    "public_key": "REPLACE_WITH_PAIR_WIREGUARD_PUBLIC_KEY=",
+    "pool": "10.200.0.0/21",
+    "capacity": 1500,
+    "token_hash": "REPLACE_WITH_SHA256_HEX_OF_GATEWAY_API_TOKEN",
+    "enabled": true
+  },
+  {
+    "id": "site2-pair",
+    "site": "onprem-site2",
+    "endpoint": "vpn-site2.example.com:51820",
+    "public_key": "REPLACE_WITH_PAIR_WIREGUARD_PUBLIC_KEY=",
+    "pool": "10.200.8.0/21",
+    "capacity": 1500,
+    "token_hash": "REPLACE_WITH_SHA256_HEX_OF_GATEWAY_API_TOKEN",
+    "enabled": true
+  }
+]

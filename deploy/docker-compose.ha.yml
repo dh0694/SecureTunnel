@@ -1,0 +1,61 @@
+# HA lab on one host: two control servers behind HAProxy, and two gateways.
+# Turned on by ./ha.sh up (which adds this file to COMPOSE_FILE in .env, so
+# every "docker compose" command includes it). ./ha.sh down goes back.
+#
+#   Cloudflare Tunnel / gateways ──► lb (HAProxy, 127.0.0.1:8443)
+#                                      ├─► control   (control-a, active)
+#                                      └─► control-b (standby; takes over in ~4 s)
+#   Clients ──UDP 51820──► gateway   (lab-gw,   pool 10.200.0.0/21, wg0)
+#           ──UDP 51821──► gateway-b (lab-gw-b, pool 10.200.8.0/21, wg1)
+#
+# Both control servers share the database, so either can serve any session.
+# The load balancer listens on localhost only: Cloudflare Tunnel and the
+# gateways connect locally, and the client IP headers stay trustworthy.
+
+services:
+  control:
+    ports: !reset []
+    environment:
+      ST_HOST_LABEL: control-a
+      ST_LB_STATS_URL: "http://lb:8404/stats;csv"
+
+  control-b:
+    extends:
+      file: docker-compose.yml
+      service: control
+    build: !reset null
+    ports: !reset []
+    environment:
+      ST_HOST_LABEL: control-b
+      ST_LB_STATS_URL: "http://lb:8404/stats;csv"
+
+  lb:
+    image: haproxy:2.9-alpine
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8443:8443"
+    volumes:
+      - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    depends_on:
+      - control
+      - control-b
+
+  gateway:
+    depends_on: !override
+      - lb
+
+  gateway-b:
+    extends:
+      file: docker-compose.yml
+      service: gateway
+    depends_on: !override
+      - lb
+    environment:
+      GA_INTERFACE: wg1
+      GA_LISTEN_PORT: "51821"
+    volumes:
+      - ./data/gateway-b:/etc/securetunnel/gateway:ro
+      - gwstate-b:/var/lib/securetunnel
+
+volumes:
+  gwstate-b:

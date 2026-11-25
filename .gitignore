@@ -1,0 +1,9 @@
+*.exe
+/server/bin/
+gateways.json
+*.pem
+*.key
+.env
+/deploy/data/
+securetunnel.conf
+/screenshots/

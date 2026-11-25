@@ -1,0 +1,807 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>SecureTunnel admin</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="app.css">
+<script src="demo.js" defer></script>
+<script src="app.js" defer></script>
+<script src="policies.js" defer></script>
+</head>
+<body>
+
+<!-- Icon sprite (Feather icons, MIT) -->
+<svg xmlns="http://www.w3.org/2000/svg" class="sprite" aria-hidden="true">
+  <defs>
+    <symbol id="i-layers" viewBox="0 0 24 24"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></symbol><symbol id="i-chevron-up" viewBox="0 0 24 24"><polyline points="18 15 12 9 6 15"/></symbol><symbol id="i-chevron-down" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></symbol><symbol id="i-home" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></symbol>
+    <symbol id="i-activity" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></symbol>
+    <symbol id="i-server" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></symbol>
+    <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></symbol>
+    <symbol id="i-zap" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></symbol>
+    <symbol id="i-user-x" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="18" y1="8" x2="23" y2="13"/><line x1="23" y1="8" x2="18" y2="13"/></symbol>
+    <symbol id="i-key" viewBox="0 0 24 24"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+    <symbol id="i-phone" viewBox="0 0 24 24"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></symbol>
+    <symbol id="i-power" viewBox="0 0 24 24"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></symbol>
+    <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></symbol>
+    <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></symbol>
+    <symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></symbol>
+    <symbol id="i-external" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></symbol>
+  </defs>
+</svg>
+
+<!-- Sign-in -->
+<section id="login-view" class="login hidden">
+  <div class="login-hero">
+    <div class="login-hero-brand"><span class="logo"><svg class="i"><use href="#i-shield"/></svg></span>SecureTunnel</div>
+    <div class="login-hero-body">
+      <h2>Remote access, managed.</h2>
+      <p>Sessions, gateways, devices and access policy for your organization's VPN in one console.</p>
+      <ul>
+        <li><svg class="i"><use href="#i-lock"/></svg>Microsoft sign-in with Conditional Access on every connect</li>
+        <li><svg class="i"><use href="#i-server"/></svg>Gateways across sites with automatic failover</li>
+        <li><svg class="i"><use href="#i-activity"/></svg>Live diagnostics for every user and device</li>
+      </ul>
+    </div>
+    <div class="login-hero-foot">Authorized administrators only. Activity is recorded.</div>
+  </div>
+  <div class="login-wrap">
+    <div class="login-brand">
+      <span class="logo"><svg class="i"><use href="#i-shield"/></svg></span>
+      <span>SecureTunnel</span>
+    </div>
+    <form id="login-form" class="card login-card" autocomplete="on">
+      <h1>Sign in</h1>
+      <p class="muted">Admin console</p>
+      <p id="login-sso-error" class="form-error" role="alert"></p>
+      <div id="login-ms" class="hidden stack-sm">
+        <a class="btn ms block" href="/admin/auth/entra/start"><svg class="ms-logo" viewBox="0 0 21 21" aria-hidden="true"><rect x="1" y="1" width="9" height="9" fill="#f25022"/><rect x="11" y="1" width="9" height="9" fill="#7fba00"/><rect x="1" y="11" width="9" height="9" fill="#00a4ef"/><rect x="11" y="11" width="9" height="9" fill="#ffb900"/></svg>Sign in with Microsoft</a>
+        <button type="button" class="link small center" id="login-local-toggle">Use a local account</button>
+      </div>
+      <div id="login-local" class="stack-sm">
+      <label class="field"><span>Username</span><input id="login-user" name="username" autocomplete="username" required></label>
+      <label class="field"><span>Password</span><input id="login-pass" name="password" type="password" autocomplete="current-password" required></label>
+      <label id="login-code-wrap" class="field hidden"><span>Authenticator code</span>
+        <input id="login-code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="123 456">
+      </label>
+      <p id="login-error" class="form-error" role="alert"></p>
+      <button class="btn primary block" type="submit">Sign in</button>
+      </div>
+    </form>
+    <p class="login-foot muted">Sign-ins are recorded in the audit log.</p>
+  </div>
+</section>
+
+<!-- App -->
+<div id="app-view" class="app hidden">
+  <aside class="side" id="side">
+    <div class="side-brand">
+      <span class="logo"><svg class="i"><use href="#i-shield"/></svg></span>
+      <span>SecureTunnel</span>
+    </div>
+    <nav class="nav">
+      <div class="nav-label">Monitor</div>
+      <a href="#overview" data-view="overview"><svg class="i"><use href="#i-home"/></svg>Overview</a>
+      <a href="#sessions" data-view="sessions"><svg class="i"><use href="#i-activity"/></svg>Sessions<span class="nav-count" id="nav-live"></span></a>
+      <a href="#servers" data-view="servers"><svg class="i"><use href="#i-server"/></svg>Servers<span class="nav-dot hidden" id="nav-sys"></span></a>
+      <div class="nav-label">Manage</div>
+      <a href="#devices" data-view="devices"><svg class="i"><use href="#i-monitor"/></svg>Devices<span class="nav-count warn" id="nav-pending"></span></a>
+      <a href="#users" data-view="users"><svg class="i"><use href="#i-users"/></svg>Users</a>
+      <a href="#groups" data-view="groups"><svg class="i"><use href="#i-layers"/></svg>Groups</a>
+      <a href="#policies" data-view="policies"><svg class="i"><use href="#i-shield"/></svg>Policies</a>
+      <a href="#updates" data-view="updates"><svg class="i"><use href="#i-download"/></svg>App updates<span class="nav-count warn" id="nav-outdated"></span></a>
+      <a href="#settings" data-view="settings"><svg class="i"><use href="#i-key"/></svg>Settings</a>
+      <div class="nav-label">Records</div>
+      <a href="#audit" data-view="audit"><svg class="i"><use href="#i-file"/></svg>Audit log</a>
+      <a href="/downloads/" target="_blank" rel="noopener" class="nav-ext"><svg class="i"><use href="#i-download"/></svg>Downloads<svg class="i ext"><use href="#i-external"/></svg></a>
+    </nav>
+    <div class="side-foot">
+      <div class="me">
+        <span class="avatar" id="me-avatar"></span>
+        <div class="me-text"><div id="me-name" class="me-name"></div><div id="me-role" class="muted small"></div></div>
+        <button id="logout" class="icon-btn" title="Sign out" aria-label="Sign out"><svg class="i"><use href="#i-logout"/></svg></button>
+      </div>
+    </div>
+  </aside>
+
+  <div class="main-wrap">
+    <header class="topbar">
+      <button id="menu-btn" class="icon-btn menu-btn" aria-label="Menu"><svg class="i"><use href="#i-menu"/></svg></button>
+      <div class="titles">
+        <h1 id="page-title">Overview</h1>
+        <p id="page-sub" class="muted"></p>
+      </div>
+      <div class="top-actions">
+        <span id="demo-badge" class="badge warn hidden">Demo data</span>
+        <span id="updated" class="muted small"></span>
+        <button id="refresh" class="icon-btn" title="Refresh" aria-label="Refresh"><svg class="i"><use href="#i-refresh"/></svg></button>
+      </div>
+    </header>
+
+    <main>
+      <!-- Overview -->
+      <section id="view-overview" class="view">
+        <div class="kpis">
+          <div class="kpi"><div class="kpi-icon ok"><svg class="i"><use href="#i-lock"/></svg></div><div><div class="kpi-v" id="m-active">–</div><div class="kpi-k">Connected</div></div></div>
+          <div class="kpi"><div class="kpi-icon warn"><svg class="i"><use href="#i-refresh"/></svg></div><div><div class="kpi-v" id="m-suspended">–</div><div class="kpi-k">Reconnecting</div></div></div>
+          <div class="kpi"><div class="kpi-icon info"><svg class="i"><use href="#i-zap"/></svg></div><div><div class="kpi-v" id="m-day">–</div><div class="kpi-k">Connects, 24 h</div></div></div>
+          <div class="kpi"><div class="kpi-icon" id="m-gw-icon"><svg class="i"><use href="#i-server"/></svg></div><div><div class="kpi-v" id="m-gw">–</div><div class="kpi-k">Gateways healthy</div></div></div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-head"><h2>Connections, last 24 hours</h2><span class="muted small" id="chart-total"></span></div>
+            <div id="chart" class="chart"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h2>Gateways</h2><a href="#servers" class="link small">View all</a></div>
+            <div id="ov-gateways" class="gw-list"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h2>Client versions</h2><span class="muted small" id="cv-latest"></span></div>
+          <div id="cv-list" class="cv-list"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h2>Recent activity</h2><a href="#audit" class="link small">Audit log</a></div>
+          <ul id="ov-activity" class="activity"></ul>
+        </div>
+      </section>
+
+      <!-- Sessions -->
+      <section id="view-sessions" class="view hidden">
+        <div class="toolbar">
+          <div class="seg" role="tablist" id="s-seg">
+            <button data-state="live" class="on" role="tab">Live</button>
+            <button data-state="ended" role="tab">Ended</button>
+            <button data-state="" role="tab">All</button>
+          </div>
+          <label class="search"><svg class="i"><use href="#i-search"/></svg><input id="s-q" type="search" placeholder="Search user, device or tunnel IP"></label>
+        </div>
+        <div class="card flush">
+          <div class="table-wrap"><table class="table clickable">
+            <thead><tr><th>User</th><th>Status</th><th>Device</th><th>Network</th><th>Gateway</th><th>Tunnel IP</th><th>From</th><th>Data used</th><th>Duration</th><th>Last seen</th></tr></thead>
+            <tbody id="s-rows"></tbody>
+          </table></div>
+        </div>
+      </section>
+
+      <!-- Servers: gateways, control servers, load balancer and database -->
+      <section id="view-servers" class="view hidden">
+        <div id="sys-summary" class="sys-summary"></div>
+        <div id="sys-flow" class="card sys-flow"></div>
+
+        <section class="sys-sec" id="sys-sec-gateway">
+          <div class="sys-sec-head"><div class="kpi-icon"><svg class="i"><use href="#i-server"/></svg></div>
+            <div class="grow"><h2>Gateways <span class="count" id="gw-count"></span></h2>
+              <p class="muted small">Carry the VPN traffic: each user's WireGuard tunnel goes straight from their PC to a gateway, which routes it on to the network.</p></div></div>
+          <div class="card place-line" id="place-line">
+            <span class="grow" id="place-text"></span>
+            <button type="button" class="btn sm" id="place-edit">Edit rules</button>
+          </div>
+          <div id="g-cards" class="gw-cards"></div>
+        </section>
+
+        <div id="sys-body" class="sys-body"></div>
+      </section>
+
+      <!-- App updates -->
+      <section id="view-updates" class="view hidden">
+        <div class="upd-top">
+          <div class="card upd-hero">
+            <div class="upd-hero-head">
+              <div><div class="muted small">Current version</div><div class="upd-ver mono" id="upd-latest">–</div></div>
+              <div class="upd-pct"><span id="upd-pct-v">–</span><span class="muted small" id="upd-pct-k"></span></div>
+            </div>
+            <div class="upd-stack" id="upd-stack"></div>
+            <div class="upd-legend" id="upd-versions"></div>
+          </div>
+          <div class="card upd-rules">
+            <div class="card-head"><h2>Update rules</h2><a href="#policies" class="link">Edit in Policies →</a></div>
+            <div id="upd-pol-list" class="upd-rule-list"></div>
+          </div>
+        </div>
+
+        <div class="card" id="upd-push">
+          <div class="card-head"><h2>Push an update</h2><span class="muted small">Reaches connected PCs within seconds, even when updates are paused. Every push is audited.</span></div>
+          <div class="upd-push-grid">
+            <div class="field"><span>To</span>
+              <div class="opt-tiles two">
+                <label class="opt-tile"><input type="radio" name="push-to" value="outdated" checked><b id="push-to-outdated">Older versions</b><em>Every connected PC not on the current version</em></label>
+                <label class="opt-tile"><input type="radio" name="push-to" value="pcs"><b id="push-to-pcs">Selected PCs</b><em>The PCs ticked in the list below</em></label>
+              </div></div>
+            <div class="field"><span>When</span>
+              <div class="opt-tiles">
+                <label class="opt-tile"><input type="radio" name="push-when" value="disconnect" checked><b>After they disconnect</b><em>No interruption</em></label>
+                <label class="opt-tile"><input type="radio" name="push-when" value="now"><b>Now, with warning</b><em>2-minute countdown; users can postpone</em></label>
+                <label class="opt-tile urgent"><input type="radio" name="push-when" value="immediate"><b>Immediately</b><em>No warning, can't postpone. Urgent fixes only</em></label>
+                <label class="opt-tile"><input type="radio" name="push-when" value="at"><b>At a set time</b><em><input type="datetime-local" id="push-at"></em></label>
+              </div></div>
+          </div>
+          <p class="form-error" id="push-error" role="alert"></p>
+          <div class="form-foot"><span class="muted small">Offline PCs follow their update rules when they're back.</span><button type="button" class="btn primary" id="push-go">Push update</button></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h2>Connected PCs</h2>
+            <div class="seg" id="upd-seg"><button type="button" data-f="all" class="on">All <span class="seg-n" id="upd-n-all"></span></button><button type="button" data-f="old">Needs update <span class="seg-n" id="upd-n-old"></span></button></div></div>
+          <div class="table-wrap"><table class="table">
+            <thead><tr><th class="chk"><input type="checkbox" id="upd-all" aria-label="Tick all"></th><th>Computer</th><th>Version</th><th>Rule</th><th>Status</th></tr></thead>
+            <tbody id="upd-rows"></tbody></table></div>
+        </div>
+      </section>
+
+      <!-- Devices -->
+      <section id="view-devices" class="view hidden">
+        <div class="card dev-policy">
+          <div class="grow">
+            <div class="strong">New devices need approval</div>
+            <div class="muted small">When on, a PC that hasn't connected before is held as pending and can't connect until IT approves it. Blocked PCs can never connect.</div>
+          </div>
+          <button class="btn" id="dev-approve-all">Approve all pending</button>
+          <label class="switch"><input type="checkbox" id="dev-require"><span id="dev-require-label">Off</span></label>
+        </div>
+        <div class="toolbar">
+          <div class="seg" role="tablist" id="dev-seg">
+            <button data-status="pending" role="tab">Pending <span class="seg-n" id="dev-count-pending"></span></button>
+            <button data-status="approved" class="on" role="tab">Approved <span class="seg-n" id="dev-count-approved"></span></button>
+            <button data-status="blocked" role="tab">Blocked <span class="seg-n" id="dev-count-blocked"></span></button>
+            <button data-status="" role="tab">All <span class="seg-n" id="dev-count-all"></span></button>
+          </div>
+          <label class="search"><svg class="i"><use href="#i-search"/></svg><input id="dev-q" type="search" placeholder="Search computer, user or ID"></label>
+        </div>
+        <div class="card flush">
+          <div class="table-wrap"><table class="table">
+            <thead><tr><th>Computer</th><th>Status</th><th>Certificate</th><th>Last user</th><th>Platform</th><th>Last seen</th><th>Decided</th><th></th></tr></thead>
+            <tbody id="dev-rows"></tbody>
+          </table></div>
+        </div>
+      </section>
+
+      <!-- Groups -->
+      <section id="view-groups" class="view hidden">
+        <div class="card info-card">
+          <div class="grow"><div class="strong">Groups are who or what a policy applies to</div>
+            <div class="muted small">A user group holds people (by Entra group, or picked by hand); a device group holds PCs (by computer name or platform). A person or PC can be in several groups. Assign groups to policies on the <a href="#policies" class="link">Policies</a> page.</div></div>
+          <button class="btn primary" id="xg-add"><svg class="i"><use href="#i-plus"/></svg>Add group</button>
+        </div>
+        <div id="xg-migrated" class="banner hidden"></div>
+        <div id="xg-list" class="g-list"></div>
+      </section>
+
+      <!-- Policies -->
+      <section id="view-policies" class="view hidden">
+        <div class="card info-card">
+          <div class="grow"><div class="strong">How a policy is picked</div>
+            <div class="muted small">For each kind of policy, the first one in the list with an assigned group that includes the user or PC applies. Every kind ends with a Default for everyone. Move policies up or down to set their priority.</div></div>
+        </div>
+        <div id="pol-sections" class="pol-sections"></div>
+      </section>
+
+      <!-- Settings -->
+      <section id="view-settings" class="view hidden">
+        <form id="f-servers" class="card policy-card">
+          <div class="card-head"><h2>Server addresses</h2></div>
+          <p class="muted small">The apps connect to the main address. If they can't reach it at all, they automatically use a backup address and switch back once the main one works again. Sessions carry over without signing in again. Backups are sent to every app, so they're known even while the main address is down.</p>
+          <div class="policy-grid two">
+            <label class="field"><span>Main address</span><input id="srv-primary" class="mono" disabled></label>
+            <label class="field"><span>Backup addresses</span><textarea id="srv-backups" rows="3" class="mono" placeholder="vpn2.example.com&#10;203.0.113.10"></textarea>
+              <em class="hint">One per line, up to 5. A name means port 443; an IP alone means port 8443. Each must reach the same control servers (same database).</em></label>
+          </div>
+          <p class="form-error" id="srv-error" role="alert"></p>
+          <div class="form-foot"><span class="muted small">Installer: <code>/BACKUP=vpn2.example.com</code> · GPO/Intune: <code>BackupServers</code></span><button class="btn primary" id="srv-save">Save addresses</button></div>
+        </form>
+
+        <form id="f-signin" class="card policy-card">
+          <div class="card-head"><h2>Sign-in</h2><span class="badge neutral plain" id="si-status"></span></div>
+          <p class="muted small">How people sign in. Microsoft sign-in uses one Entra app registration, and Conditional Access decides MFA and device requirements. The local admin account always works on this console as a break-glass account. Setup steps are in docs/ENTRA-SETUP.md.</p>
+          <div class="policy-grid two">
+            <label class="check-row"><input type="checkbox" id="si-entra"> <span><b>Sign in with Microsoft (Entra ID)</b><br><span class="muted small">VPN users and this console. Admin access comes from the app roles below.</span></span></label>
+            <label class="check-row"><input type="checkbox" id="si-local"> <span><b>Local accounts can connect to the VPN</b><br><span class="muted small">Master switch for test accounts from the Users page. Sign-in policies can also limit who may use one. Turn off once everyone uses Microsoft.</span></span></label>
+          </div>
+          <div class="policy-grid">
+            <label class="field"><span>Directory (tenant) ID</span><input id="si-tenant" class="mono" autocomplete="off" placeholder="11111111-2222-3333-4444-555555555555"></label>
+            <label class="field"><span>Application (client) ID</span><input id="si-client" class="mono" autocomplete="off" placeholder="11111111-2222-3333-4444-555555555555"></label>
+            <label class="field"><span>Client secret</span><input id="si-secret" type="password" autocomplete="new-password" placeholder="Paste a new secret"><em class="hint" id="si-secret-hint">For this console's Microsoft sign-in only.</em></label>
+          </div>
+          <label class="check-row"><input type="checkbox" id="si-prompt"> <span><b>Ask for the password on every connect</b><br><span class="muted small">Off = single sign-on: Edge signs in with the user's Windows account, with no typing. On = the password is asked on every connect. MFA is decided by Conditional Access either way.</span></span></label>
+          <div class="reg-box">
+            <div class="strong small-head">Register these in the app registration</div>
+            <div class="reg-row"><span class="muted">Web redirect URI (this console)</span><code id="si-admin-uri"></code><button type="button" class="btn sm" data-copy="si-admin-uri">Copy</button></div>
+            <div class="reg-row"><span class="muted">Mobile and desktop redirect URI (agent)</span><code id="si-agent-uri"></code><button type="button" class="btn sm" data-copy="si-agent-uri">Copy</button></div>
+            <div class="reg-row"><span class="muted">Exposed API scope</span><code id="si-scope">api://&lt;client ID&gt;/access_as_user</code><button type="button" class="btn sm" data-copy="si-scope">Copy</button></div>
+            <div class="reg-row"><span class="muted">App roles (value)</span><code id="si-roles"></code><span></span></div>
+          </div>
+          <p class="form-error" id="si-error" role="alert"></p>
+          <div class="form-foot"><span class="muted small">Changes apply within seconds on every control server.</span><button class="btn primary" id="si-save">Save sign-in</button></div>
+        </form>
+
+        <form id="f-trust" class="card policy-card">
+          <div class="card-head"><h2>Certificates</h2><span class="badge plain neutral" id="dt-status"></span></div>
+          <p class="muted small">The CAs that issue the device or user certificates a <a href="#policies" class="link">sign-in policy</a> can require. Join type, Intune compliance and domain are checked by Entra (Conditional Access), not here.</p>
+          <div class="graph-row" id="dt-graph"><span class="dot-s" id="dt-graph-dot"></span><span id="dt-graph-text">Checking Microsoft Graph…</span><button type="button" class="link small" id="dt-graph-recheck">Check again</button></div>
+          <div class="dialog-sub">Certificates</div>
+          <div class="stack-sm">
+            <label class="check"><input type="checkbox" id="dt-match-name"> Device certificates must name the computer (CN or DNS name)</label>
+            <label class="check"><input type="checkbox" id="dt-match-user"> User certificates must be the signed-in user (UPN or email)</label>
+          </div>
+          <div class="field-row even">
+            <label class="field"><span>Device certificate names</span><textarea id="dt-dev-names" rows="2" class="mono small-text" placeholder="$hostname.cb-sisco.com&#10;*.cb-sisco.com"></textarea></label>
+            <label class="field"><span>User certificate names</span><textarea id="dt-user-names" rows="2" class="mono small-text" placeholder="$upn&#10;*@cb-sisco.com"></textarea></label>
+          </div>
+          <em class="hint" style="margin-top:-6px">Optional, one pattern per line; a certificate must match one. <code>*</code> matches anything, <code>$hostname</code> is the computer's name, <code>$upn</code> the user's sign-in name, <code>$user</code> the part before @. Device certificates are matched on their CN and DNS names, user certificates on email, UPN and CN. Empty = any name.</em>
+          <label class="field"><span>Trusted issuing CAs</span><textarea id="dt-cas" rows="5" class="mono small-text" placeholder="-----BEGIN CERTIFICATE-----&#10;…&#10;-----END CERTIFICATE-----"></textarea>
+            <em class="hint">Paste your issuing CA and root CA certificates (PEM, Base-64 .cer). Device certificates are read from the computer store, user certificates from the user's store.</em></label>
+          <div id="dt-ca-list" class="ca-list"></div>
+          <p class="form-error" id="dt-error" role="alert"></p>
+          <div class="form-foot"><span class="muted small">Blocked connects show the reason to the user and in the audit log.</span><button class="btn primary" id="dt-save">Save device trust</button></div>
+        </form>
+
+        <form id="f-duo" class="card policy-card">
+          <div class="card-head"><h2>Duo</h2><span class="badge plain neutral" id="duo-status"></span></div>
+          <p class="muted small">For sign-in policies that use Duo as an extra sign-in step. After the user signs in, the server sends a Duo Push (or a phone call, if that's their device) and connects once they approve. In the Duo Admin Panel, add an <b>Auth API</b> application and copy its details here.</p>
+          <div class="policy-grid">
+            <label class="field"><span>API hostname</span><input id="duo-host" class="mono" autocomplete="off" placeholder="api-1a2b3c4d.duosecurity.com"></label>
+            <label class="field"><span>Integration key</span><input id="duo-ikey" class="mono" autocomplete="off" placeholder="DIXXXXXXXXXXXXXXXXXX"></label>
+            <label class="field"><span>Secret key</span><input id="duo-skey" type="password" autocomplete="new-password" placeholder="Paste the secret key"><em class="hint" id="duo-skey-hint"></em></label>
+          </div>
+          <label class="field narrow-field"><span>Duo username</span>
+            <select id="duo-format">
+              <option value="upn">Full sign-in name (jsmith@contoso.com)</option>
+              <option value="prefix">Part before @ (jsmith)</option>
+            </select><em class="hint">How your users are named in Duo.</em></label>
+          <p class="form-error" id="duo-error" role="alert"></p>
+          <div class="form-foot"><button type="button" class="btn" id="duo-test">Test connection</button><button class="btn primary" id="duo-save">Save Duo</button></div>
+        </form>
+
+        <div class="card"><h2>Office networks, countries, speed tests</h2><p class="muted small">These are now policies, so different groups can get different settings: see <a href="#policies" class="link">Policies</a>. Device approval is there too (the Devices page switch edits the Default).</p></div>
+        <form id="f-office" class="card policy-card hidden">
+          <div class="card-head"><h2>Office networks</h2><label class="switch"><input type="checkbox" id="of-enabled"><span>Detect the office</span></label></div>
+          <p class="muted small">When a PC is on the corporate network, the agent disconnects the VPN and won't connect, so traffic goes out the office network directly. Any one rule is enough. Rules are cached on each PC, so they work before connecting.</p>
+          <div class="policy-grid">
+            <label class="field"><span>DNS suffixes</span><textarea id="of-dns" rows="4" placeholder="cb-sisco.com"></textarea><em class="hint">The network adapter's DNS suffix. Subdomains match too.</em></label>
+            <label class="field"><span>Local subnets</span><textarea id="of-subnets" rows="4" placeholder="10.20.0.0/16"></textarea><em class="hint">The PC's own IP on Wi-Fi or Ethernet.</em></label>
+            <label class="field"><span>Office public IPs</span><textarea id="of-public" rows="4" placeholder="203.0.113.10"></textarea><em class="hint">The office's internet address, as seen by websites.</em></label>
+          </div>
+          <p class="form-error" id="of-error" role="alert"></p>
+          <div class="form-foot"><span class="muted small">One per line.</span><button class="btn primary" id="of-save">Save office networks</button></div>
+        </form>
+
+        <form id="f-devtun" class="card policy-card">
+          <div class="card-head"><h2>Device tunnel (before sign-in)</h2><label class="switch"><input type="checkbox" id="dtun-enabled"><span>Connect before logon</span></label></div>
+          <p class="muted small">With nobody signed in to SecureTunnel, Windows PCs connect with their device certificate so the Windows sign-in screen can reach your domain controllers: first logons without cached credentials, password changes and resets, Group Policy and Intune at boot. Only approved devices whose certificate (from a trusted CA under Device trust) names the computer can connect. The tunnel reaches only these subnets, and the gateways enforce that. When a user signs in to SecureTunnel, their full tunnel replaces it.</p>
+          <div class="policy-grid">
+            <label class="field"><span>Allowed subnets</span><textarea id="dtun-subnets" rows="5" placeholder="10.0.0.10/32&#10;10.0.0.11/32&#10;10.0.5.0/24"></textarea><em class="hint">Domain controllers, DNS and management servers. An address alone means just that host.</em></label>
+            <label class="field"><span>DNS servers</span><textarea id="dtun-dns" rows="5" placeholder="10.0.0.10"></textarea><em class="hint">Usually your DCs. Must be inside the subnets. Empty uses the normal VPN DNS.</em></label>
+          </div>
+          <p class="form-error" id="dtun-error" role="alert"></p>
+          <div class="form-foot"><span class="muted small">One per line.</span><button class="btn primary" id="dtun-save">Save device tunnel</button></div>
+        </form>
+
+        <form id="f-countries" class="card policy-card hidden">
+          <div class="card-head"><h2>Country access</h2><label class="switch"><input type="checkbox" id="co-enabled"><span>Restrict by country</span></label></div>
+          <p class="muted small">Users can sign in and connect only from these countries, plus any extra countries or trips set on their account in <a href="#users" class="link">Users</a>. The country comes from the user's public IP when they sign in, as detected by Cloudflare. Every blocked attempt is in the audit log.</p>
+          <div class="stack-sm">
+            <div class="field"><span>Allowed for everyone</span><input id="co-default" autocomplete="off"><em class="hint" id="co-default-names"></em></div>
+            <label class="check-row"><input type="checkbox" id="co-unknown"> <span><b>Block when the country can't be determined</b><br><span class="muted small">For example a connection that doesn't come through Cloudflare.</span></span></label>
+          </div>
+          <p class="form-error" id="co-error" role="alert"></p>
+          <div class="form-foot"><span class="muted small">Search by name or code; click a country to add or remove it.</span><button class="btn primary" id="co-save">Save country access</button></div>
+        </form>
+        <form id="f-speed" class="card policy hidden">
+          <div class="card-head"><h2>Speed tests</h2><span class="muted small" id="spd-source"></span></div>
+          <p class="muted small">Agents measure their internet speed outside the VPN (only to this host; everything else stays in the tunnel) and their speed through the VPN. Results appear in each session's details.</p>
+          <div class="policy-fields">
+            <label class="field"><span>Run automatically every</span><div class="suffix"><input id="spd-interval" type="number" min="0" max="720" step="1" required><em>hours</em></div></label>
+            <label class="field"><span>Test size</span><div class="suffix"><input id="spd-size" type="number" min="1" max="100" step="1" required><em>MB</em></div></label>
+            <label class="field"><span>Speed test host</span><input id="spd-host" required placeholder="speed.cloudflare.com"></label>
+            <div class="policy-actions"><button class="btn primary" id="spd-save">Save</button></div>
+          </div>
+          <p class="muted small">0 hours turns automatic tests off; users can still run one from the app.</p>
+          <p class="form-error" id="spd-error" role="alert"></p>
+        </form>
+      </section>
+
+      <!-- Users -->
+      <section id="view-users" class="view hidden">
+        <div class="toolbar">
+          <label class="search"><svg class="i"><use href="#i-search"/></svg><input id="u-q" type="search" placeholder="Search users"></label>
+          <button id="u-add" class="btn primary"><svg class="i"><use href="#i-plus"/></svg>Add user</button>
+        </div>
+        <div class="card flush">
+          <div class="table-wrap"><table class="table">
+            <thead><tr><th>User</th><th>Role</th><th>MFA</th><th>Groups</th><th>Countries</th><th>Status</th><th>Last sign-in</th><th></th></tr></thead>
+            <tbody id="u-rows"></tbody>
+          </table></div>
+        </div>
+      </section>
+
+      <!-- Audit -->
+      <section id="view-audit" class="view hidden">
+        <div class="toolbar">
+          <label class="search"><svg class="i"><use href="#i-search"/></svg><input id="a-q" type="search" placeholder="Filter by user, event or detail"></label>
+        </div>
+        <div class="card flush">
+          <div class="table-wrap"><table class="table">
+            <thead><tr><th>Time</th><th>Who</th><th>Event</th><th>Detail</th></tr></thead>
+            <tbody id="a-rows"></tbody>
+          </table></div>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<!-- Session details drawer -->
+<div id="drawer-backdrop" class="backdrop hidden"></div>
+<aside id="drawer" class="drawer" aria-hidden="true">
+  <div class="drawer-head">
+    <div class="drawer-title"><span class="avatar" id="d-avatar"></span><div><div id="d-user" class="strong"></div><div id="d-state"></div></div></div>
+    <button class="icon-btn" id="d-close" aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button>
+  </div>
+  <div class="drawer-body">
+    <div class="d-actions" id="d-actions">
+      <span class="muted small">Help this user</span>
+      <div class="d-actions-row">
+        <button class="btn sm" id="d-act-speed"><svg class="i"><use href="#i-zap"/></svg>Run speed test</button>
+        <button class="btn sm" id="d-act-diag"><svg class="i"><use href="#i-refresh"/></svg>Refresh diagnostics</button>
+        <button class="btn sm" id="d-act-msg"><svg class="i"><use href="#i-file"/></svg>Send message</button>
+        <button class="btn sm" id="d-act-logs"><svg class="i"><use href="#i-download"/></svg>Collect logs</button>
+        <button class="btn sm" id="d-act-move"><svg class="i"><use href="#i-server"/></svg>Move to another gateway</button>
+        <button class="btn sm" id="d-act-update"><svg class="i"><use href="#i-download"/></svg>Update app</button>
+      </div>
+    </div>
+    <dl id="d-list" class="dl"></dl>
+    <div class="d-speed"><div class="strong small-head">Speed tests on this device</div><div id="d-speed"></div></div>
+    <div class="d-speed"><div class="strong small-head">Logs from this device</div><div id="d-logs"></div></div>
+  </div>
+  <div class="drawer-foot">
+    <button id="d-history" class="btn">View user's sessions</button>
+    <button id="d-disconnect" class="btn danger"><svg class="i"><use href="#i-user-x"/></svg>Disconnect</button>
+  </div>
+</aside>
+
+<!-- Dialogs -->
+<dialog id="dlg-xgroup" class="dialog wide">
+  <form method="dialog" id="f-xgroup">
+    <div class="dialog-head"><h2 id="f-xgroup-title">Add group</h2><button type="button" class="icon-btn" data-close aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button></div>
+    <div class="field-row even">
+      <label class="field"><span>Name</span><input id="xg-name" required maxlength="60" placeholder="IT staff"></label>
+      <label class="field"><span>Description</span><input id="xg-desc" maxlength="200" placeholder="Optional"></label>
+    </div>
+    <div class="field"><span>This group is made of</span>
+      <div class="seg" id="xg-kind"><button type="button" data-kind="users" class="on">Users</button><button type="button" data-kind="devices">Devices</button></div></div>
+    <div id="xg-users" class="stack-sm">
+      <label class="field"><span>Entra groups (members of any)</span>
+        <div class="picker"><input id="g-search" autocomplete="off" placeholder="Search Entra groups, or paste a group object ID"><div id="g-results" class="picker-results hidden"></div></div>
+      </label>
+      <div id="g-chips" class="chips"></div>
+      <label class="field"><span>Users picked by hand</span><textarea id="xg-userlist" rows="3" placeholder="jsmith@cb-sisco.com&#10;elastic"></textarea>
+        <em class="hint">One per line: an Entra user's sign-in name or a local account. They're in the group whatever their Entra groups.</em></label>
+    </div>
+    <div id="xg-devices" class="stack-sm hidden">
+      <label class="field"><span>Computer names</span><textarea id="xg-names" rows="3" class="mono" placeholder="LT-*&#10;KIOSK-0?&#10;DESKTOP-MH8EM2A"></textarea>
+        <em class="hint">One per line. <code>*</code> matches anything, <code>?</code> one character; a name without them is that exact PC.</em></label>
+    </div>
+    <div class="check-line"><span class="muted small">Platform</span>
+      <label class="check"><input type="checkbox" id="g-win"> Windows</label>
+      <label class="check"><input type="checkbox" id="g-mac"> Mac</label>
+      <span class="muted small" id="xg-plat-hint">(none ticked = any)</span></div>
+    <em class="hint" id="xg-hint"></em>
+    <p class="form-error" id="xg-error" role="alert"></p>
+    <div class="dialog-foot"><button type="button" class="btn danger hidden" id="xg-delete">Delete group</button><span class="grow"></span><button type="button" class="btn" data-close>Cancel</button><button class="btn primary">Save group</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-policy" class="dialog wide">
+  <form method="dialog" id="f-policy">
+    <div class="dialog-head"><h2 id="f-policy-title">Add policy</h2><button type="button" class="icon-btn" data-close aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button></div>
+    <div class="field-row even">
+      <label class="field"><span>Name</span><input id="p-name" required maxlength="60"></label>
+      <label class="field"><span>Description</span><input id="p-desc" maxlength="200" placeholder="Optional"></label>
+    </div>
+    <div class="field" id="p-assign-wrap"><span>Assigned to</span>
+      <div class="assign-list" id="p-assign"></div>
+      <em class="hint" id="p-assign-hint"></em></div>
+    <div id="ps-signin" class="stack-sm">
+    <div class="dialog-sub">Sign-in</div>
+    <div class="check-line">
+      <label class="check"><input type="checkbox" id="g-ms"> Sign in with Microsoft</label>
+      <label class="check"><input type="checkbox" id="g-local"> Local account</label>
+    </div>
+    <label class="field"><span>Extra sign-in step</span>
+      <select id="g-mfa">
+        <option value="none">None: Entra MFA through Conditional Access</option>
+        <option value="duo">Duo Push after sign-in</option>
+      </select><em class="hint" id="g-mfa-hint"></em></label>
+    <div class="dialog-sub">Certificate</div>
+    <label class="field"><span>Require a certificate</span>
+      <select id="g-cert">
+        <option value="off">Not required</option>
+        <option value="device">Device certificate (computer store)</option>
+        <option value="user">User certificate (user's store)</option>
+        <option value="either">Device or user certificate</option>
+        <option value="both">Device and user certificates</option>
+      </select><em class="hint" id="g-cert-hint"></em></label>
+    </div>
+    <div id="ps-windows" class="stack-sm">
+      <p class="muted small" style="margin:0">What the Windows app does when users sign out, switch or lock. Applies from each user's next connect.</p>
+    <div class="win-grid">
+      <label class="field"><span>When the user signs out of Windows</span>
+        <select id="gw-signout">
+          <option value="disconnect">Disconnect the VPN</option>
+          <option value="stay">Stay connected</option>
+          <option value="device_tunnel">Switch to the device tunnel</option>
+        </select></label>
+      <label class="field"><span>When another Windows user signs in or switches in</span>
+        <select id="gw-switch">
+          <option value="disconnect">Disconnect; they sign in themselves</option>
+          <option value="share">Let them share the tunnel</option>
+          <option value="block">Keep it; they can't connect or disconnect</option>
+        </select></label>
+      <label class="field"><span>Same Windows user in a second session (e.g. RDP)</span>
+        <select id="gw-same">
+          <option value="same">Treat as the same person</option>
+          <option value="different">Treat as another user</option>
+        </select></label>
+      <label class="field"><span>When the screen is locked</span>
+        <select id="gw-lock">
+          <option value="0">Stay connected</option>
+          <option value="5">Disconnect after 5 minutes</option>
+          <option value="15">Disconnect after 15 minutes</option>
+          <option value="30">Disconnect after 30 minutes</option>
+          <option value="60">Disconnect after 1 hour</option>
+          <option value="240">Disconnect after 4 hours</option>
+        </select></label>
+      <label class="field"><span>Windows user differs from the VPN user</span>
+        <select id="gw-match">
+          <option value="allow">Allow (admins see both names)</option>
+          <option value="warn">Allow and flag it in the audit log</option>
+          <option value="block">Block: they must use their own account</option>
+        </select></label>
+      <label class="field"><span>Who can press Disconnect</span>
+        <select id="gw-disc">
+          <option value="anyone">Anyone at the PC</option>
+          <option value="owner">Only the user who connected</option>
+        </select></label>
+    </div>
+    <em class="hint" id="gw-hint"></em>
+    </div>
+    <div id="ps-updates" class="stack-sm">
+      <p class="muted small" style="margin:0">Updates always install when the VPN is disconnected, since that interrupts nobody; these settings decide what happens while people are connected. PCs get this with their version check, even when they're not connected.</p>
+    <div class="check-line"><label class="switch"><input type="checkbox" id="up-auto"><span id="up-auto-label">Automatic updates</span></label></div>
+          <p class="muted small">Every app gets this with its version check, so it reaches PCs that aren't connected too. Updates always install when the VPN is disconnected, since that interrupts nobody; these settings decide what happens while people are connected.</p>
+          <div class="upd-policy">
+            <fieldset class="field"><legend>Install while connected</legend>
+              <label class="radio"><input type="radio" name="up-when" value="disconnected"> <span><b>Never: wait until they disconnect</b><br><span class="muted small">No interruptions. PCs that stay connected all day may lag behind.</span></span></label>
+              <label class="radio"><input type="radio" name="up-when" value="window"> <span><b>During a maintenance window</b><br><span class="muted small">Disconnect, update and reconnect (about 20 seconds) inside the hours below, PC local time.</span></span></label>
+              <label class="radio"><input type="radio" name="up-when" value="anytime"> <span><b>As soon as it's downloaded</b><br><span class="muted small">Disconnect, update and reconnect right away, after a 2-minute warning.</span></span></label>
+            </fieldset>
+            <div class="stack-sm" id="up-window">
+              <div class="field"><span>Maintenance window days</span>
+                <div class="day-picks" id="up-days"></div></div>
+              <div class="field-row even">
+                <label class="field"><span>From</span><input type="time" id="up-start" required></label>
+                <label class="field"><span>Until</span><input type="time" id="up-end" required></label>
+              </div>
+              <em class="hint">An end before the start runs past midnight (22:00–02:00).</em>
+            </div>
+          </div>
+          <div class="field-row three">
+            <label class="field"><span>Staged rollout</span>
+              <select id="up-rollout"><option value="100">Everyone at once</option><option value="10">10% of PCs first</option><option value="25">25% of PCs first</option><option value="50">50% of PCs first</option><option value="75">75% of PCs first</option></select>
+              <em class="hint">Raise it to 100% once the first group is fine.</em></label>
+            <label class="field"><span>Deadline</span>
+              <select id="up-deadline"><option value="0">None</option><option value="1">1 day</option><option value="3">3 days</option><option value="7">7 days</option><option value="14">14 days</option><option value="30">30 days</option></select>
+              <em class="hint">After this long, a waiting update installs even while connected.</em></label>
+            <label class="field"><span>Users may postpone</span>
+              <select id="up-postpones"><option value="0">Not at all</option><option value="1">Once (1 hour)</option><option value="3">Up to 3 times</option><option value="5">Up to 5 times</option></select>
+              <em class="hint">Each postpone is an hour; never past the deadline.</em></label>
+          </div>
+          <label class="check"><input type="checkbox" id="up-notify"> Tell users in the app when an update is waiting</label>
+    </div>
+    <div id="ps-countries" class="stack-sm">
+      <label class="check"><input type="checkbox" id="pc-enabled"> Limit the countries users can connect from</label>
+      <label class="field"><span>Allowed countries</span><input type="text" id="pc-list"><em class="hint" id="pc-hint"></em></label>
+      <label class="check"><input type="checkbox" id="pc-unknown"> Block when the country can't be determined</label>
+      <em class="hint">Per-user allowed countries and trips (Users page) still add to this.</em>
+    </div>
+    <div id="ps-approval" class="stack-sm">
+      <label class="check"><input type="checkbox" id="pa-require"> New devices need approval before they can connect</label>
+      <em class="hint">Approve them on the Devices page.</em>
+    </div>
+    <div id="ps-office" class="stack-sm">
+      <label class="check"><input type="checkbox" id="po-enabled"> Detect office networks (the app stays off while in the office)</label>
+      <label class="field"><span>DNS suffixes</span><textarea id="po-dns" rows="2" placeholder="corp.example.com"></textarea></label>
+      <label class="field"><span>Local subnets</span><textarea id="po-subnets" rows="2" placeholder="10.20.0.0/16"></textarea></label>
+      <label class="field"><span>Office public IPs</span><textarea id="po-ips" rows="2" placeholder="203.0.113.10"></textarea><em class="hint">One per line or comma-separated. Any match counts.</em></label>
+    </div>
+    <div id="ps-speedtest" class="stack-sm">
+      <div class="field-row three">
+        <label class="field"><span>Automatic test</span>
+          <select id="pt-interval"><option value="0">Only on demand</option><option value="1">Every hour</option><option value="4">Every 4 hours</option><option value="12">Every 12 hours</option><option value="24">Daily</option><option value="168">Weekly</option></select></label>
+        <label class="field"><span>Download size</span>
+          <select id="pt-size"><option value="5">5 MB</option><option value="10">10 MB</option><option value="25">25 MB</option><option value="50">50 MB</option><option value="100">100 MB</option></select></label>
+        <label class="field"><span>Internet test host</span><input type="text" id="pt-host" placeholder="speed.cloudflare.com"></label>
+      </div>
+    </div>
+    <p class="form-error" id="p-error" role="alert"></p>
+    <div class="dialog-foot"><button type="button" class="btn danger hidden" id="p-delete">Delete policy</button><span class="grow"></span><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" id="p-save">Save policy</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-logs" class="dialog wide">
+  <div class="dialog-head"><h2 id="dlg-logs-title">Logs</h2><button type="button" class="icon-btn" data-close aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button></div>
+  <p class="muted small">Sent from the app (Diagnose → Send logs to IT) or collected by IT. The newest 5 per device are kept.</p>
+  <div id="dlg-logs-list"></div>
+  <div class="dialog-foot"><button type="button" class="btn" data-close>Close</button></div>
+</dialog>
+
+<dialog id="dlg-trust" class="dialog wide">
+  <div class="dialog-head"><h2 id="dlg-trust-title">Device trust</h2><button type="button" class="icon-btn" data-close aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button></div>
+  <p class="muted small" id="dlg-trust-sub"></p>
+  <dl class="dl" id="dlg-trust-list"></dl>
+  <div class="dialog-foot"><button type="button" class="btn" data-close>Close</button></div>
+</dialog>
+
+<dialog id="dlg-user" class="dialog">
+  <form method="dialog" id="f-user">
+    <div class="dialog-head"><h2 id="f-user-title">Add user</h2><button type="button" class="icon-btn" data-close aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button></div>
+    <div class="field" id="f-user-kind-wrap"><span>Account type</span>
+      <div class="seg" id="f-user-kind"><button type="button" data-kind="local" class="on">Local account</button><button type="button" data-kind="entra">Entra user</button></div>
+      <em class="hint" id="f-user-kind-hint">A password account for testing, or the break-glass admin.</em>
+    </div>
+    <label class="field"><span id="f-user-name-label">Username</span><input id="f-user-name" required autocomplete="off" placeholder="jsmith"></label>
+    <label class="field"><span>Display name</span><input id="f-user-display" autocomplete="off" placeholder="Jane Smith"></label>
+    <label class="field" id="f-user-role-wrap"><span>Role</span>
+      <select id="f-user-role">
+        <option value="user">VPN user: can connect, no admin access</option>
+        <option value="helpdesk">Helpdesk: view everything, disconnect sessions</option>
+        <option value="admin">Admin: full access</option>
+      </select>
+    </label>
+    <div id="f-user-pols" class="user-pols hidden"></div>
+    <label class="field" id="f-user-pass-wrap"><span>Password</span><input id="f-user-pass" type="password" autocomplete="new-password" minlength="12" placeholder="At least 12 characters"></label>
+    <div id="f-user-countries" class="hidden stack-sm">
+      <div class="dialog-sub">Country access</div>
+      <div class="field"><span>Extra countries (always)</span><input id="f-user-allowed" autocomplete="off"><em class="hint" id="f-user-allowed-names"></em></div>
+      <div class="field"><span>Trip countries</span><input id="f-user-travel" autocomplete="off"><em class="hint" id="f-user-travel-names"></em></div>
+      <label class="field narrow"><span>Trip ends</span><input id="f-user-until" type="date"></label>
+      <em class="hint">On top of the countries allowed for everyone on the Settings page. Trip countries stop working after the end date.</em>
+    </div>
+    <label class="check hidden" id="f-user-disabled-wrap"><input type="checkbox" id="f-user-disabled"> Account disabled</label>
+    <p class="form-error" id="f-user-error" role="alert"></p>
+    <div class="dialog-foot"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" id="f-user-submit">Add user</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-pass" class="dialog">
+  <form method="dialog" id="f-pass">
+    <div class="dialog-head"><h2>Reset password</h2><button type="button" class="icon-btn" data-close aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button></div>
+    <p class="muted" id="f-pass-who"></p>
+    <label class="field"><span>New password</span><input id="f-pass-new" type="password" autocomplete="new-password" minlength="12" required placeholder="At least 12 characters"></label>
+    <div class="row-between"><button type="button" class="link small" id="f-pass-gen">Generate one</button><span class="mono small" id="f-pass-show"></span></div>
+    <p class="form-error" id="f-pass-error" role="alert"></p>
+    <div class="dialog-foot"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary">Set password</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-mfa" class="dialog">
+  <div class="dialog-head"><h2>Set up authenticator</h2><button type="button" class="icon-btn" data-close aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button></div>
+  <p class="muted" id="mfa-who"></p>
+  <div class="mfa">
+    <img id="mfa-qr" alt="QR code for the authenticator app" width="200" height="200">
+    <div>
+      <ol class="steps">
+        <li>Open Microsoft Authenticator, Google Authenticator or similar.</li>
+        <li>Add an account and scan this code.</li>
+        <li>Or enter this key by hand:</li>
+      </ol>
+      <div class="secret-box"><code id="mfa-secret"></code><button type="button" class="icon-btn" id="mfa-copy" aria-label="Copy key"><svg class="i"><use href="#i-copy"/></svg></button></div>
+      <p class="muted small">The key is shown only now. From the next sign-in the code is required.</p>
+    </div>
+  </div>
+  <div class="dialog-foot"><button type="button" class="btn primary" data-close>Done</button></div>
+</dialog>
+
+<dialog id="dlg-move" class="dialog">
+  <form method="dialog" id="f-move">
+    <div class="dialog-head"><h2>Move to another gateway</h2><button type="button" class="icon-btn" data-close aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button></div>
+    <p class="muted" id="f-move-who"></p>
+    <label class="field"><span>Gateway</span><select id="f-move-target"></select></label>
+    <p class="muted small">The app switches within a few seconds. Their tunnel IP changes to the new gateway's pool, so open connections (calls, file copies) restart.</p>
+    <p class="form-error" id="f-move-error" role="alert"></p>
+    <div class="dialog-foot"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary">Move</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-place" class="dialog">
+  <form method="dialog" id="g-policy">
+    <div class="dialog-head"><h2>Placement rules</h2><button type="button" class="icon-btn" data-close aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button></div>
+    <p class="muted small">New users go to the gateway with the fewest users. A gateway at or over any of these limits stops taking new users until it recovers. If every gateway is over its limits, users still connect to the least busy one.</p>
+    <div class="field-row three">
+      <label class="field"><span>Max CPU</span><div class="suffix"><input id="pol-cpu" type="number" min="1" max="100" step="1" required><em>%</em></div></label>
+      <label class="field"><span>Max memory</span><div class="suffix"><input id="pol-mem" type="number" min="1" max="100" step="1" required><em>%</em></div></label>
+      <label class="field"><span>Min free disk</span><div class="suffix"><input id="pol-disk" type="number" min="0" step="1" required><em>GB</em></div></label>
+    </div>
+    <span class="muted small" id="pol-source"></span>
+    <p class="form-error" id="pol-error" role="alert"></p>
+    <div class="dialog-foot policy-actions"><button type="button" class="btn" id="pol-reset">Use defaults</button><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" id="pol-save">Save</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-update" class="dialog">
+  <form method="dialog" id="f-update">
+    <div class="dialog-head"><h2>Update the app</h2><button type="button" class="icon-btn" data-close aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button></div>
+    <p class="muted" id="f-update-who"></p>
+    <div class="field">
+      <label class="radio"><input type="radio" name="f-update-when" value="disconnect" checked> <span>Install after they disconnect <span class="muted small">(no interruption)</span></span></label>
+      <label class="radio"><input type="radio" name="f-update-when" value="now"> <span>Disconnect, update and reconnect now <span class="muted small">(2-minute warning)</span></span></label>
+      <label class="radio"><input type="radio" name="f-update-when" value="immediate"> <span>Update immediately <span class="muted small">(no warning, can't be postponed)</span></span></label>
+      <label class="radio"><input type="radio" name="f-update-when" value="at"> <span>Disconnect, update and reconnect at <input type="datetime-local" id="f-update-at"></span></label>
+    </div>
+    <p class="muted small">The app reconnects by itself after updating; the user doesn't sign in again.</p>
+    <p class="form-error" id="f-update-error" role="alert"></p>
+    <div class="dialog-foot"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary">Send</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-pool" class="dialog">
+  <form method="dialog" id="f-pool">
+    <div class="dialog-head"><h2 id="f-pool-title">Address range</h2><button type="button" class="icon-btn" data-close aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button></div>
+    <p class="muted small">Tunnel IPs for users on this gateway come from this range; the gateway itself takes the first address. Each gateway needs its own range, and your network must route it to the gateway.</p>
+    <label class="field"><span>Range</span><input id="f-pool-input" class="mono" required placeholder="10.200.0.0/21" autocomplete="off" spellcheck="false"></label>
+    <p class="muted small" id="f-pool-info"></p>
+    <ul class="pool-warn" id="f-pool-warn"></ul>
+    <p class="form-error" id="f-pool-error" role="alert"></p>
+    <div class="dialog-foot"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" id="f-pool-save">Save range</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-msg" class="dialog">
+  <form method="dialog" id="f-msg">
+    <div class="dialog-head"><h2>Send a message</h2><button type="button" class="icon-btn" data-close aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button></div>
+    <p class="muted" id="f-msg-who"></p>
+    <label class="field"><span>Message</span><textarea id="f-msg-text" rows="4" maxlength="500" placeholder="Hi, it's IT. We're looking at your VPN connection. Please stay connected for a few minutes." required></textarea></label>
+    <p class="muted small">It pops up in their SecureTunnel window within a few seconds.</p>
+    <p class="form-error" id="f-msg-error" role="alert"></p>
+    <div class="dialog-foot"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary">Send</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-confirm" class="dialog small-dialog">
+  <form method="dialog">
+    <div class="dialog-head"><h2 id="c-title"></h2></div>
+    <p id="c-body" class="muted"></p>
+    <div class="dialog-foot"><button value="cancel" class="btn">Cancel</button><button value="ok" class="btn danger" id="c-ok">Confirm</button></div>
+  </form>
+</dialog>
+
+<!-- Row menu -->
+<div id="menu" class="menu hidden" role="menu"></div>
+
+<div id="toasts" class="toasts" aria-live="polite"></div>
+</body>
+</html>
