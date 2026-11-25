@@ -224,11 +224,12 @@ type Options struct {
 	Ping func(ctx context.Context, source, ip netip.Addr, timeout time.Duration) (time.Duration, error)
 }
 
-// Gateway pings: one every pingEvery; jitter and loss use the last
-// pingWindow of them (5 minutes) and the graph keeps 30 minutes.
+// Gateway pings: jitter uses the last 60 samples, packet loss uses the last
+// 30 seconds, and the graph keeps up to 30 minutes.
 const (
 	pingEvery   = 5 * time.Second
 	pingWindow  = 60
+	lossWindow  = 30 * time.Second
 	pingKeep    = 360
 	pingTimeout = 2 * time.Second
 	// statsWarmup is how long after connecting (or changing gateway) before
@@ -659,11 +660,19 @@ func (e *Engine) Status() Status {
 	if e.pinging(e.sess) && len(e.pingHist) > 0 {
 		st.LatencySource = "gateway"
 		st.LatencyHistory = pingGraph(e.pingHist)
-		lossStart := max(0, len(e.pingHist)-pingWindow)
-		st.JitterMs, st.LossPct = quality(e.pingHist[lossStart:])
+		st.JitterMs, _ = quality(e.pingHist[max(0, len(e.pingHist)-pingWindow):])
 		st.LatencyHistorySeconds = secondsSince(now, e.pingTimes[pingGraphOffset(len(e.pingTimes))].Add(-pingEvery))
 		st.LatencyLatestSeconds = secondsSince(now, e.pingTimes[len(e.pingTimes)-1])
-		st.LossWindowSeconds = secondsSince(now, e.pingTimes[lossStart].Add(-pingEvery))
+		cutoff := now.Add(-lossWindow)
+		lossStart := len(e.pingTimes)
+		for lossStart > 0 && e.pingTimes[lossStart-1].After(cutoff) {
+			lossStart--
+		}
+		st.LossPct, st.LossWindowSeconds = 0, 0
+		if lossStart < len(e.pingTimes) {
+			_, st.LossPct = quality(e.pingHist[lossStart:])
+			st.LossWindowSeconds = min(int(lossWindow/time.Second), secondsSince(now, e.pingTimes[lossStart].Add(-pingEvery)))
+		}
 	}
 	if e.sess != nil && !e.trafT.IsZero() {
 		st.RxBytes, st.TxBytes = e.trafRx, e.trafTx

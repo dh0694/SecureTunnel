@@ -821,7 +821,7 @@ func TestStatusReportsGraphAndLossSampleAges(t *testing.T) {
 	}
 	st = r.e.Status()
 	if st.LatencySource != "gateway" || st.LatencyHistorySeconds != 315 ||
-		st.LatencyLatestSeconds != 5 || st.LossWindowSeconds != 305 {
+		st.LatencyLatestSeconds != 5 || st.LossWindowSeconds != 30 {
 		t.Fatalf("unexpected gateway age metadata: %+v", st)
 	}
 }
@@ -847,5 +847,25 @@ func TestReturningToWiFiGetsNewLocalRepair(t *testing.T) {
 	r.e.Tick(ctx)
 	if r.tun.ups != ups+1 || r.api.failovers != 0 {
 		t.Fatal("expected a fresh same-gateway repair on the Wi-Fi route")
+	}
+}
+
+func TestGatewayPacketLossUsesOnlyLast30Seconds(t *testing.T) {
+	r := newRig(t)
+	r.connect(t)
+	r.e.o.Ping = func(context.Context, netip.Addr, netip.Addr, time.Duration) (time.Duration, error) {
+		return time.Millisecond, nil
+	}
+	r.e.sess.Placement.Gateway.InsideIP = "10.200.0.1"
+	r.e.pingHist = []int{-1, -1, -1, 20, 30}
+	for _, age := range []time.Duration{60, 30, 20, 11, 4} {
+		r.e.pingTimes = append(r.e.pingTimes, r.now.Add(-age*time.Second))
+	}
+	if st := r.e.Status(); st.LossWindowSeconds != 25 || st.LossPct < 33 || st.LossPct > 34 {
+		t.Fatalf("expected one missed ping among the three in the window, got %.2f%% across %ds", st.LossPct, st.LossWindowSeconds)
+	}
+	r.advance(30 * time.Second)
+	if st := r.e.Status(); st.LossWindowSeconds != 0 {
+		t.Fatalf("stale gateway pings still supply a loss measurement: %+v", st)
 	}
 }

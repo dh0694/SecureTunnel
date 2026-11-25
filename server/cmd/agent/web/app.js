@@ -243,46 +243,18 @@ function renderSignin(st) {
   $("si-ip").textContent = ips && ips.isp_ip ? "Your public IP: " + ips.isp_ip : "";
 }
 
-// ---- connection health: plain-English warnings with what to try ----
-function healthIssue(st) {
-  const n = st.network || {};
-  const wifi = n.kind === "Wi-Fi";
-  const hist = (st.latency_history || []);
-  const ok = hist.filter((v) => v >= 0).sort((a, b) => a - b);
-  const median = ok.length ? ok[Math.floor(ok.length / 2)] : 0;
-  const local = wifi
-    ? "Move closer to your Wi-Fi router, or plug in a network cable if you can."
-    : "Check your internet connection, or restart your modem or router.";
-  if ((st.drops_recent || 0) >= 3) {
-    return { kind: "bad", title: "Your connection keeps dropping",
-      text: "It dropped " + st.drops_recent + " times in the last 15 minutes. Calls and downloads may be interrupted. " + local };
-  }
-  if (wifi && n.signal_pct && n.signal_pct < 40) {
-    return { kind: "warn", title: "Weak Wi-Fi signal",
-      text: "Your Wi-Fi signal is " + n.signal_pct + "%. Move closer to the router or use a network cable for a steadier connection." };
-  }
-  if (ok.length >= 10 && median > 150) {
-    return { kind: "warn", title: "Your connection is slow to respond",
-      text: "It takes about " + median + " ms to reach the VPN (under 80 ms is typical). If others on your network are streaming or uploading, that can cause it. " + local };
-  }
-  if (ok.length >= 10 && st.jitter_ms >= 30) {
-    return { kind: "warn", title: "Your connection is unsteady",
-      text: "Response times vary by about " + st.jitter_ms + " ms, which can make Teams calls choppy. " + local };
-  }
-  return null;
+function metricSeverity(value, warning, critical) {
+  return value >= critical ? "bad" : value >= warning ? "warn" : "";
 }
-function renderHealth(st, rec) {
-  const box = $("st-health");
-  const issue = rec ? null : healthIssue(st);
-  box.classList.toggle("hidden", !issue);
-  if (!issue) return;
-  box.className = "health " + issue.kind;
-  $("st-health-title").textContent = issue.title;
-  $("st-health-text").textContent = issue.text;
+
+function showMetricSeverity(element, severity, detail) {
+  element.classList.toggle("metric-warn", severity === "warn");
+  element.classList.toggle("metric-bad", severity === "bad");
+  element.title = detail;
 }
 
 const vpnRecovery = new Map([
-  ["checking", ["Checking VPN connection…", "No action needed right now."]],
+  ["checking", ["Trying to reconnect…", "No action needed right now."]],
   ["waiting_for_network", ["Waiting for a network", "Connect to Wi-Fi or Ethernet to continue."]],
   ["repairing", ["Repairing the VPN…", "Restarting the tunnel on the current gateway."]],
   ["switching_gateway", ["Switching VPN gateways…", "Trying another VPN gateway."]],
@@ -291,7 +263,9 @@ const vpnRecovery = new Map([
 ]);
 const vpnRecoveryMessages = new Map([...vpnRecovery].map(([phase, [title]]) => [title, phase]));
 
-vpnRecoveryMessages.set("Checking the VPN path…", "checking"); // Older agent services.
+// Older agent services.
+vpnRecoveryMessages.set("Checking the VPN path…", "checking");
+vpnRecoveryMessages.set("Checking VPN connection…", "checking");
 
 function recoveryStatus(st) {
   if (!st.office_mode) {
@@ -369,34 +343,75 @@ function renderStatus(st) {
   const latencyDescription = serverChecks ? "Round trip to the control server." : unknownSource
     ? "Round trip for recent connection checks." : "Round trip to your VPN gateway through the tunnel.";
   $("lat-total").title = latencyDescription + " Red marks samples with no reply.";
-  $("m-lat-box").title = latencyDescription + " Jitter measures how much response times vary.";
-  $("m-lat").textContent = st.latency_ms && !rec ? st.latency_ms + " ms" : "–";
-  $("m-jit").textContent = lat.length > 1 ? "±" + st.jitter_ms + " ms jitter" : "";
-  const loss = $("m-loss");
-  const hasLoss = latency.length > 0 && Number.isFinite(st.loss_pct);
+  $("m-lat-box").title = latencyDescription;
+  const latest = $("m-lat"), jitter = $("m-jit"), loss = $("m-loss");
+  const latencyMs = !rec && st.latency_ms > 0 ? st.latency_ms : 0;
+  const hasJitter = !rec && lat.length > 1 && Number.isFinite(st.jitter_ms);
+  const hasLoss = latency.length > 0 && Number.isFinite(st.loss_pct) &&
+    (st.latency_source !== "gateway" || st.loss_window_seconds !== 0);
+  const latencySeverity = metricSeverity(latencyMs, 120, 250);
+  const jitterSeverity = hasJitter ? metricSeverity(st.jitter_ms, 30, 60) : "";
+  const lossSeverity = hasLoss ? metricSeverity(st.loss_pct, 3, 10) : "";
+
+  latest.textContent = latencyMs ? latencyMs + " ms" : "–";
+  showMetricSeverity(latest, latencySeverity, latencyDescription +
+    (latencySeverity ? " Slow replies can make apps feel less responsive." : ""));
+  jitter.textContent = hasJitter ? "±" + st.jitter_ms + " ms jitter" : "";
+  showMetricSeverity(jitter, jitterSeverity, "Jitter measures how much response times vary." +
+    (jitterSeverity ? " Uneven replies can make calls choppy." : ""));
+
   $("m-loss-label").textContent = serverChecks || unknownSource ? "Missed checks" : "Packet loss";
-  $("m-loss-box").title = serverChecks ? "Percentage of recent control server checks that received no reply."
+  const lossDescription = serverChecks ? "Percentage of recent control server checks that received no reply."
     : unknownSource ? "Percentage of recent connection checks that received no reply."
-      : "Percentage of recent pings to the VPN gateway that received no reply.";
+      : "Percentage of VPN gateway pings from the last 30 seconds that received no reply.";
+  const lossDetail = lossDescription + (lossSeverity ? " Some checks are going unanswered." : "");
+  $("m-loss-box").title = lossDetail;
   $("m-loss-period").textContent = hasLoss && st.loss_window_seconds > 0 ? "Last " + historyDuration(st.loss_window_seconds) : "";
   loss.textContent = hasLoss ? (st.loss_pct > 0 && st.loss_pct < 10 ? st.loss_pct.toFixed(1) : Math.round(st.loss_pct)) + "%" : "–";
-  loss.classList.toggle("loss-warn", hasLoss && st.loss_pct >= 3 && st.loss_pct < 10);
-  loss.classList.toggle("loss-bad", hasLoss && st.loss_pct >= 10);
-  const q = rec ? ["Checking", "neutral"] : quality(st);
-  $("q-pill").textContent = q[0];
-  $("q-pill").className = "pill " + q[1];
+  showMetricSeverity(loss, lossSeverity, lossDetail);
+
+  const drops = st.drops_recent || 0;
+  const reasons = [];
+  if (latencySeverity) reasons.push("Slow replies.");
+  if (jitterSeverity) reasons.push("Uneven response times.");
+  if (lossSeverity) reasons.push("Missed connection checks.");
+  if (drops >= 3) reasons.push(drops + " connection drops in the last 15 minutes.");
+  const severities = [latencySeverity, jitterSeverity, lossSeverity];
+  const poor = drops >= 3 || severities.includes("bad");
+  const badge = $("q-pill");
+  const [qualityText, qualityColor] = rec ? ["Checking", "neutral"]
+    : poor ? ["Poor", "bad"] : severities.includes("warn") ? ["Fair", "warn"]
+      : latency.length < 2 ? ["Measuring…", "neutral"] : ["Good", "ok"];
+  badge.textContent = qualityText;
+  badge.className = "pill " + qualityColor;
+  badge.title = reasons.join(" ");
   chartData.lat = { values: latency, timing: chartTiming(st.latency_history_seconds, st.latency_latest_seconds) };
   drawLatency(latency);
   renderChartAxis("lat", chartData.lat, false, serverChecks ? 35 : 6);
-  renderHealth(st, rec);
 
   // Network
   const n = st.network || {};
   $("net-ic").setAttribute("href", n.kind === "Ethernet" ? "#i-cable" : "#i-wifi");
   $("net-name").textContent = n.kind === "Wi-Fi" && n.ssid ? n.ssid : (n.kind || "Network");
-  $("net-sub").textContent = [n.adapter, n.link_mbps ? n.link_mbps + " Mbps link" : "", n.signal_pct ? n.signal_pct + "% signal" : ""].filter(Boolean).join(" · ");
+  const link = [n.adapter, n.link_mbps ? n.link_mbps + " Mbps link" : ""].filter(Boolean).join(" · ");
+  const signal = $("net-signal");
   const bars = $("net-bars");
-  bars.classList.toggle("hidden-bars", !n.signal_pct);
+  const signalPct = Number.isFinite(n.signal_pct) && n.signal_pct > 0 ? n.signal_pct : 0;
+  const weak = n.kind === "Wi-Fi" && signalPct > 0 && signalPct < 40;
+  const veryWeak = weak && signalPct < 20;
+  const label = signalPct ? signalPct + "% signal" : "";
+  const detail = weak
+    ? (veryWeak ? "Very weak Wi-Fi signal (" : "Weak Wi-Fi signal (") +
+      signalPct + "%). Move closer to the router or use a network cable."
+    : label;
+  $("net-sub").textContent = link + (link && label ? " · " : "");
+  signal.textContent = label;
+  bars.classList.toggle("hidden-bars", !signalPct);
+  for (const indicator of [signal, bars]) {
+    indicator.title = detail;
+    indicator.classList.toggle("signal-warn", weak && !veryWeak);
+    indicator.classList.toggle("signal-bad", veryWeak);
+  }
   const lit = n.signal_pct >= 80 ? 4 : n.signal_pct >= 55 ? 3 : n.signal_pct >= 30 ? 2 : n.signal_pct > 0 ? 1 : 0;
   [...bars.children].forEach((b, i) => b.classList.toggle("on", i < lit));
 
@@ -415,14 +430,6 @@ function renderStatus(st) {
   $("st-ispip").textContent = (ips && ips.isp_ip) || "–";
   $("conn-down").textContent = st.rx_bytes ? fmtBytes(st.rx_bytes) : "–";
   $("conn-up").textContent = st.tx_bytes ? fmtBytes(st.tx_bytes) : "–";
-}
-
-function quality(st) {
-  const h = st.latency_history || [];
-  if (h.length < 2) return ["Measuring…", "neutral"];
-  if (st.loss_pct >= 10 || st.latency_ms > 250) return ["Poor", "bad"];
-  if (st.loss_pct >= 3 || st.latency_ms > 120 || st.jitter_ms > 40) return ["Fair", "warn"];
-  return ["Good", "ok"];
 }
 
 function fmtBps(n) {
@@ -811,12 +818,6 @@ async function poll() {
   setTimeout(poll, 1000);
 }
 poll();
-
-$("st-health-check").addEventListener("click", () => {
-  const b = document.querySelector('.tabs button[data-tab="diag"]');
-  if (b) b.click();
-  setTimeout(() => { const run = $("dg-run"); if (run) run.click(); }, 50);
-});
 
 $("lg-send").addEventListener("click", async () => {
   const btn = $("lg-send"), out = $("lg-result");

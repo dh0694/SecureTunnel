@@ -85,12 +85,6 @@
       </div>
       <div id="st-office" class="banner office hidden" role="status"><b>You're on the office network</b><span id="st-office-text"></span></div>
       <p id="st-owner" class="banner warn hidden" role="status"></p>
-      <div id="st-health" class="health hidden" role="status">
-        <div class="strong" id="st-health-title"></div>
-        <p id="st-health-text"></p>
-        <div class="health-foot"><button class="btn sm" id="st-health-check" type="button">Run connection checks</button></div>
-      </div>
-
       <div class="card conn" id="st-conn">
         <div class="conn-head"><span class="strong">Connection</span><span class="pill" id="q-pill"></span></div>
         <div class="conn-grid">
@@ -113,8 +107,8 @@
 
       <div class="card">
         <div class="net"><span class="net-ic"><svg class="i"><use id="net-ic" href="#i-wifi"/></svg></span>
-          <div class="grow"><div class="strong" id="net-name">–</div><div class="muted small" id="net-sub"></div></div>
-          <div class="bars" id="net-bars"><i></i><i></i><i></i><i></i></div></div>
+          <div class="grow"><div class="strong" id="net-name">–</div><div class="muted small"><span id="net-sub"></span><span id="net-signal"></span></div></div>
+          <div class="bars" id="net-bars" aria-hidden="true"><i></i><i></i><i></i><i></i></div></div>
       </div>
 
       <div class="card details">
