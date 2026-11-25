@@ -1142,7 +1142,7 @@ func (e *Engine) Tick(ctx context.Context) time.Duration {
 	e.lifecycleMu.Lock()
 	defer e.lifecycleMu.Unlock()
 	e.mu.Lock()
-	s, api, busy, st, force := e.sess, e.api, e.busy, e.state, e.forceHB
+	s, api, busy, st, force := e.sess, e.api, e.busy, e.state, e.forceHB || e.netKick
 	e.forceHB = false
 	mv := e.moveTo
 	if !busy {
@@ -1240,7 +1240,13 @@ func (e *Engine) Tick(ctx context.Context) time.Duration {
 	}
 	diag := e.diagnostics()
 	e.lifecycleMu.Unlock()
-	hctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	heartbeatTimeout := 10 * time.Second
+	if roaming && path == pathDown {
+		// The tunnel has already missed several checks. Allow a quick
+		// control reply before rebinding rather than waiting the full timeout.
+		heartbeatTimeout = 4 * time.Second
+	}
+	hctx, cancel := context.WithTimeout(ctx, heartbeatTimeout)
 	p, rtt, sent, err := e.heartbeat(hctx, api, s, diag)
 	cancel()
 	e.lifecycleMu.Lock()
@@ -1388,7 +1394,11 @@ func (e *Engine) recover(ctx context.Context, s *Session) {
 	e.mu.Unlock()
 	e.setVPNPhase(vpnChecking)
 	e.o.Log.Warn("gateway not answering; checking the control server directly", "gateway", s.Placement.Gateway.ID)
-	_ = e.tunnelDown()
+	if err := e.tunnelDown(); err != nil {
+		e.o.Log.Warn("couldn't stop tunnel for direct recovery check", "err", err)
+		e.setVPNPhase(vpnRepairing)
+		return
+	}
 	e.tunnelPending = true
 	restore := func() { e.repairTunnel(s) }
 
@@ -1405,6 +1415,15 @@ func (e *Engine) recover(ctx context.Context, s *Session) {
 		return
 	}
 
+	// Direct contact proves the session can still resume. Tunnel readiness
+	// is checked separately when the assignment is running again.
+	e.mu.Lock()
+	s.LastOK = e.o.Now()
+	e.lastHB = s.LastOK
+	if !observed.ExpiresAt.IsZero() {
+		s.Placement.ExpiresAt = observed.ExpiresAt
+	}
+	e.mu.Unlock()
 	e.acceptCommands(s, observed.Commands, sent)
 	if e.updatePlacement(s, observed) {
 		// The server already moved this session, possibly in a request whose

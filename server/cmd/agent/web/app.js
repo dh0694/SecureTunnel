@@ -36,22 +36,32 @@ function renderNotice() {
 }
 let serviceDown = false;
 let busy = false;
-// Sign-in options from the server: { local, entra: {...} } (null until loaded).
-let authCfg = null, authAt = 0, authServer = "";
+// Sign-in options belong to the server that returned them.
+let auth = { server: "", config: null, checkedAt: 0, error: "", pending: null };
 let showLocal = false, msWaiting = false;
-async function loadAuth(force) {
-  if (!status || !status.server) return;
-  if (!force && authCfg && authServer === status.server && Date.now() - authAt < 5 * 60e3) return;
-  if (!force && Date.now() - authAt < 15e3) return; // don't hammer a server that's down
-  authAt = Date.now();
-  const r = await call({ cmd: "auth_config" });
-  if (r.ok && r.auth) { authCfg = r.auth; authServer = status.server; render(); }
+function loadAuth(force) {
+  const server = status && status.server;
+  if (!server) return;
+  if (auth.server !== server) auth = { server, config: null, checkedAt: 0, error: "", pending: null };
+  const request = auth;
+  if (request.pending) return;
+  const retryAfter = request.config ? 5 * 60e3 : 15e3;
+  if (!force && Date.now() - request.checkedAt < retryAfter) return;
+  request.pending = call({ cmd: "auth_config" }).then((r) => {
+    request.pending = null;
+    if (auth !== request || !status || status.server !== server) return;
+    request.config = r.ok && r.auth ? r.auth : null;
+    request.error = request.config ? "" : (r.error || "Couldn't check the server's sign-in options.");
+    request.checkedAt = Date.now();
+    render();
+  });
 }
 
 async function call(req) {
   if (!window.stCall) return { ok: false, error: "Not running inside the SecureTunnel app." };
   try {
     const r = JSON.parse(await window.stCall(JSON.stringify(req)));
+    if (req.cmd === "auth_config") return r;
     serviceDown = !!r.service_down;
     if (r.status) status = r.status;
     if (r.update) update = r.update;
@@ -203,22 +213,22 @@ function renderSignin(st) {
     $("si-sub").textContent = "This PC can reach the sign-in servers. Sign in to connect fully.";
   }
   loadAuth(false);
-  // Microsoft sign-in is always offered; until IT sets it up on the server,
-  // the local account form is open below it.
-  const ms = !!(authCfg && authCfg.entra);
-  const local = !authCfg || authCfg.local;
-  const off = false; // signing in works in the office too (office mode)
-  $("si-ms").classList.toggle("hidden", off);
+  const cfg = auth.config;
+  const ms = !!(cfg && cfg.entra);
+  const local = !!(cfg && cfg.local);
+  const checking = !cfg && !!auth.pending;
+  $("si-ms").classList.remove("hidden");
   $("si-ms-ready").classList.toggle("hidden", msWaiting);
   $("si-ms-wait").classList.toggle("hidden", !msWaiting);
-  $("si-ms-btn").disabled = busy;
+  $("si-ms-btn").disabled = busy || checking || (!!cfg && !ms);
+  $("si-ms-label").textContent = cfg ? "Sign in with Microsoft" : checking ? "Checking sign-in options…" : "Retry sign-in options";
   $("si-ms-note").textContent = ms ? "Opens your browser to sign in with your work account."
-    : "Microsoft sign-in isn't set up on this server yet.";
+    : cfg ? "Microsoft sign-in is turned off for this server."
+      : checking ? "Getting sign-in options from your server." : auth.error;
   // Local accounts are for testing: a small link that opens a compact form.
-  $("f-signin").classList.toggle("hidden", off || !local || !showLocal || msWaiting);
-  $("si-local-toggle").classList.toggle("hidden", off || !local || msWaiting);
+  $("f-signin").classList.toggle("hidden", !local || !showLocal || msWaiting);
+  $("si-local-toggle").classList.toggle("hidden", !local || msWaiting);
   $("si-local-toggle").textContent = showLocal ? "Hide local account" : "Use a local account (testing)";
-  $("si-note").classList.toggle("hidden", off);
   if (st.on_trusted_network) $("si-sub").textContent = "Sign in now: traffic goes direct while you're in the office, and through the VPN when you leave.";
   if (st.on_trusted_network) {
     b.textContent = "You're on the office network" + (st.trusted_reason ? " (" + st.trusted_reason + ")" : "") + ", so the VPN stays on standby here.";
@@ -689,12 +699,13 @@ $("si-local-toggle").addEventListener("click", () => {
   if (showLocal) $("si-user").focus();
 });
 function startMicrosoft() {
-  if (!window.stEntra) { $("si-ms-error").textContent = "Not running inside the SecureTunnel app."; return; }
-  if (!(authCfg && authCfg.entra)) {
-    $("si-ms-error").textContent = "Microsoft sign-in isn't set up on this server yet. Ask IT, or use a local account (testing).";
+  if (!auth.config) {
     loadAuth(true);
+    render();
     return;
   }
+  if (!auth.config.entra) return;
+  if (!window.stEntra) { $("si-ms-error").textContent = "Not running inside the SecureTunnel app."; return; }
   $("si-ms-error").textContent = "";
   $("si-error").textContent = "";
   msWaiting = true;
@@ -711,7 +722,17 @@ window.stEntraDone = (r, seq) => {
   if (r && r.service_down) serviceDown = true;
   if (!r || !r.ok) {
     const msg = (r && r.error) || "Couldn't sign in.";
-    showError("si-ms-error", /cancelled/i.test(msg) ? "" : msg);
+    if (r && r.error_code === "auth_config_unavailable") {
+      auth.config = null;
+      auth.error = msg;
+      auth.checkedAt = Date.now();
+    } else if (r && r.auth) {
+      auth.config = r.auth;
+      auth.error = "";
+      auth.checkedAt = Date.now();
+    } else {
+      showError("si-ms-error", /cancelled/i.test(msg) ? "" : msg);
+    }
   }
   render();
 };

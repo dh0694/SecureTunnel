@@ -10,8 +10,8 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"syscall"
 	"sync"
+	"syscall"
 	"time"
 	"unsafe"
 
@@ -257,6 +257,9 @@ func openWindow() {
 				addUserProof(&req)
 			}
 			timeout := 10 * time.Second
+			if req.Cmd == "auth_config" {
+				timeout = authConfigPipeTimeout
+			}
 			if req.Cmd == "connect" || req.Cmd == "disconnect" || req.Cmd == "diagnose" || req.Cmd == "send_logs" {
 				timeout = 200 * time.Second
 			}

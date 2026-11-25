@@ -37,7 +37,6 @@ func (e *Engine) netCheck(ctx context.Context, last *string, changedAt *time.Tim
 		e.mu.Lock()
 		if e.sess != nil && !e.sess.Device && !e.standby && !e.busy {
 			e.vpnPhase = vpnChecking
-			e.netChangedAt = e.o.Now()
 		}
 		e.mu.Unlock()
 		return false
@@ -46,19 +45,21 @@ func (e *Engine) netCheck(ctx context.Context, last *string, changedAt *time.Tim
 		return false
 	}
 	*changedAt = time.Time{}
-	if fp == "" || fp == "|" {
-		e.Kick() // check whether Windows still has a usable route
-		return false
-	}
-	// Connections to the server opened on the old network may hang: drop them.
+	// Drop idle connections to the server that may belong to the old route.
 	if e.o.OnTunnelChange != nil {
 		e.o.OnTunnelChange()
 	}
 	e.mu.Lock()
-	e.netKick = true // check the tunnel on the settled route before repairing it
+	e.netKick = true
 	e.netChangedAt = e.o.Now()
+	// A repair on the old network doesn't count as an attempt on this one.
+	e.pathRepairedAt = time.Time{}
+	e.pathMisses = 0
 	e.mu.Unlock()
-	e.Kick() // office check + heartbeat now, without waiting for the public IP
+	e.Kick()
+	if fp == "" || fp == "|" {
+		return false // public IP checks can wait for a network
+	}
 	if e.o.OnNetworkChange != nil {
 		st := e.Status().State
 		go func() {

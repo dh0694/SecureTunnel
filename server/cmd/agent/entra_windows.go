@@ -21,7 +21,7 @@ import (
 // returns a response shaped like the pipe's (ok / error / status).
 func runEntraConnect() map[string]any {
 	fail := func(err error) map[string]any { return map[string]any{"ok": false, "error": err.Error()} }
-	resp, err := pipeCall(ipcRequest{Cmd: "auth_config"}, 15*time.Second)
+	resp, err := pipeCall(ipcRequest{Cmd: "auth_config"}, authConfigPipeTimeout)
 	if err != nil {
 		return map[string]any{"ok": false, "service_down": true,
 			"error": "The SecureTunnel service isn't running. Restart the PC or reinstall SecureTunnel."}
@@ -30,7 +30,10 @@ func runEntraConnect() map[string]any {
 		if resp.Error == "" {
 			resp.Error = "couldn't get the sign-in settings from the server"
 		}
-		return fail(errors.New(resp.Error))
+		return map[string]any{"ok": false, "error_code": "auth_config_unavailable", "error": resp.Error}
+	}
+	if resp.Auth.Entra == nil {
+		return map[string]any{"ok": false, "auth": resp.Auth, "error": "Microsoft sign-in is turned off for this server."}
 	}
 	r, err := entraSignIn(context.Background(), *resp.Auth)
 	if err != nil {

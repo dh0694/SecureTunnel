@@ -825,3 +825,27 @@ func TestStatusReportsGraphAndLossSampleAges(t *testing.T) {
 		t.Fatalf("unexpected gateway age metadata: %+v", st)
 	}
 }
+
+func TestReturningToWiFiGetsNewLocalRepair(t *testing.T) {
+	r := newRig(t)
+	r.connect(t)
+	r.e.sess.Placement.Gateway.InsideIP = "10.200.0.1"
+	r.e.o.Ping = func(context.Context, netip.Addr, netip.Addr, time.Duration) (time.Duration, error) {
+		return 0, errors.New("gateway unreachable on the new route")
+	}
+	r.api.hbErr = func(bool) error { return errors.New("control server unreachable") }
+	r.e.pathRepairedAt = r.e.o.Now()
+	fingerprint := "wifi"
+	r.e.o.NetFingerprint = func() string { return fingerprint }
+	last, pending := "hotspot", time.Time{}
+	ctx := context.Background()
+	r.advance(time.Second)
+	r.e.netCheck(ctx, &last, &pending, r.now)
+	r.advance(netSettle)
+	r.e.netCheck(ctx, &last, &pending, r.now)
+	ups := r.tun.ups
+	r.e.Tick(ctx)
+	if r.tun.ups != ups+1 || r.api.failovers != 0 {
+		t.Fatal("expected a fresh same-gateway repair on the Wi-Fi route")
+	}
+}

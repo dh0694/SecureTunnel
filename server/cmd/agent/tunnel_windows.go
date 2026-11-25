@@ -46,21 +46,29 @@ func (t *serviceTunnel) Running() bool {
 }
 
 func (t *serviceTunnel) Up(c agentcore.TunnelConfig) error {
-	if err := t.Down(); err != nil {
-		t.log.Warn("removing old tunnel", "err", err)
-	}
-	if err := ensureDataDir(); err != nil {
-		return fmt.Errorf("prepare data folder: %w", err)
-	}
-	if err := os.WriteFile(t.confPath(), []byte(c.WGQuick()), 0o600); err != nil {
-		return fmt.Errorf("write tunnel config: %w", err)
-	}
 	m, err := mgr.Connect()
 	if err != nil {
 		return err
 	}
 	defer m.Disconnect()
-	waitGone(m)
+	if err := stopTunnelService(m); err != nil {
+		return fmt.Errorf("remove old tunnel: %w", err)
+	}
+	if err := waitGone(m); err != nil {
+		return err
+	}
+	if err := ensureDataDir(); err != nil {
+		return fmt.Errorf("prepare data folder: %w", err)
+	}
+	configPath := t.confPath()
+	tempPath := configPath + ".tmp"
+	defer os.Remove(tempPath)
+	if err := os.WriteFile(tempPath, []byte(c.WGQuick()), 0o600); err != nil {
+		return fmt.Errorf("write tunnel config: %w", err)
+	}
+	if err := os.Rename(tempPath, configPath); err != nil {
+		return fmt.Errorf("replace tunnel config: %w", err)
+	}
 	s, err := m.CreateService(tunnelService, t.exe, mgr.Config{
 		ServiceType:  windows.SERVICE_WIN32_OWN_PROCESS,
 		StartType:    mgr.StartManual,
@@ -69,7 +77,7 @@ func (t *serviceTunnel) Up(c agentcore.TunnelConfig) error {
 		DisplayName:  "SecureTunnel tunnel",
 		Description:  "WireGuard tunnel for SecureTunnel. Started and stopped by the SecureTunnel service.",
 		SidType:      windows.SERVICE_SID_TYPE_UNRESTRICTED,
-	}, "tunnel", t.confPath())
+	}, "tunnel", configPath)
 	if err != nil {
 		return fmt.Errorf("create tunnel service: %w", err)
 	}
@@ -101,45 +109,81 @@ func (t *serviceTunnel) Up(c agentcore.TunnelConfig) error {
 }
 
 func (t *serviceTunnel) Down() error {
-	defer os.Remove(t.confPath())
 	m, err := mgr.Connect()
 	if err != nil {
 		return err
 	}
 	defer m.Disconnect()
-	s, err := m.OpenService(tunnelService)
-	if err != nil {
-		return nil // not installed: nothing to do
+	if err := stopTunnelService(m); err != nil {
+		return err
 	}
-	defer s.Close()
-	if st, err := s.Query(); err == nil && st.State != svc.Stopped {
-		_, _ = s.Control(svc.Stop)
-		deadline := time.Now().Add(20 * time.Second)
-		for time.Now().Before(deadline) {
-			st, err := s.Query()
-			if err != nil || st.State == svc.Stopped {
-				break
-			}
-			time.Sleep(250 * time.Millisecond)
-		}
+	if err := os.Remove(t.confPath()); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove tunnel config: %w", err)
 	}
-	if err := s.Delete(); err != nil && !errors.Is(err, windows.ERROR_SERVICE_MARKED_FOR_DELETE) {
-		return fmt.Errorf("remove tunnel service: %w", err)
-	}
-	// Windows finishes deleting the service in the background; Up waits for
-	// that if needed, so disconnecting doesn't have to.
 	t.log.Info("tunnel down")
 	return nil
 }
 
-// waitGone waits (briefly) for a deleted tunnel service to disappear so it can be recreated.
-func waitGone(m *mgr.Mgr) {
-	for i := 0; i < 40; i++ {
-		s, err := m.OpenService(tunnelService)
+func stopTunnelService(m *mgr.Mgr) error {
+	s, err := m.OpenService(tunnelService)
+	switch {
+	case errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST):
+		return nil
+	case errors.Is(err, windows.ERROR_SERVICE_MARKED_FOR_DELETE):
+		return waitGone(m)
+	case err != nil:
+		return fmt.Errorf("open tunnel service: %w", err)
+	}
+	defer s.Close()
+	stopRequested := false
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		st, err := s.Query()
 		if err != nil {
-			return
+			return fmt.Errorf("query tunnel service: %w", err)
 		}
-		s.Close()
+		if st.State == svc.Stopped {
+			break
+		}
+		if !time.Now().Before(deadline) {
+			return errors.New("the tunnel service took too long to stop")
+		}
+		if !stopRequested && st.State != svc.StartPending && st.State != svc.StopPending {
+			_, err = s.Control(svc.Stop)
+			switch {
+			case err == nil:
+				stopRequested = true
+			case errors.Is(err, windows.ERROR_SERVICE_NOT_ACTIVE),
+				errors.Is(err, windows.ERROR_SERVICE_CANNOT_ACCEPT_CTRL):
+				// The service transitioned while the stop request was sent.
+			default:
+				return fmt.Errorf("stop tunnel service: %w", err)
+			}
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	if err := s.Delete(); err != nil && !errors.Is(err, windows.ERROR_SERVICE_MARKED_FOR_DELETE) {
+		return fmt.Errorf("remove tunnel service: %w", err)
+	}
+	return nil
+}
+
+// waitGone waits (briefly) for a deleted tunnel service to disappear so it can be recreated.
+func waitGone(m *mgr.Mgr) error {
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		s, err := m.OpenService(tunnelService)
+		switch {
+		case errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST):
+			return nil
+		case err == nil:
+			s.Close()
+		case !errors.Is(err, windows.ERROR_SERVICE_MARKED_FOR_DELETE):
+			return fmt.Errorf("check tunnel service deletion: %w", err)
+		}
+		if !time.Now().Before(deadline) {
+			return errors.New("the tunnel service took too long to be deleted")
+		}
 		time.Sleep(250 * time.Millisecond)
 	}
 }

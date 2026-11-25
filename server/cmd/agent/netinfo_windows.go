@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net"
 	"os/exec"
 	"strconv"
@@ -28,19 +29,27 @@ func tunnelTraffic() (rx, tx uint64, ok bool) {
 }
 
 var (
-	netMu     sync.Mutex
-	netCached agentcore.NetInfo
-	netAt     time.Time
+	netMu         sync.Mutex
+	netCached     agentcore.NetInfo
+	netAt         time.Time
+	netRefreshing bool
 )
 
-// cachedNetworkInfo describes the physical network, refreshed every 10 s.
+// cachedNetworkInfo returns the last sample while a stale or initial sample
+// is collected in the background.
 func cachedNetworkInfo() agentcore.NetInfo {
 	netMu.Lock()
 	defer netMu.Unlock()
-	if time.Since(netAt) < 10*time.Second {
-		return netCached
+	if !netRefreshing && time.Since(netAt) >= 10*time.Second {
+		netRefreshing = true
+		go func() {
+			info := networkInfo()
+			netMu.Lock()
+			netCached, netAt = info, time.Now()
+			netRefreshing = false
+			netMu.Unlock()
+		}()
 	}
-	netCached, netAt = networkInfo(), time.Now()
 	return netCached
 }
 
@@ -97,7 +106,9 @@ func networkInfo() agentcore.NetInfo {
 
 // wlanDetails parses `netsh wlan show interfaces`.
 func wlanDetails() (ssid string, signal, mbps int) {
-	cmd := exec.Command("netsh", "wlan", "show", "interfaces")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "netsh", "wlan", "show", "interfaces")
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	out, err := cmd.Output()
 	if err != nil {

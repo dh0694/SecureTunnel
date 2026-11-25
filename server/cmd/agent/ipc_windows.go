@@ -17,7 +17,10 @@ import (
 // The GUI (running as the signed-in user) talks to the service (SYSTEM) over
 // a named pipe: one JSON request and one JSON response per connection.
 // SYSTEM and Administrators get full access; interactive users can read and write.
-const pipeSDDL = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;IU)"
+const (
+	pipeSDDL              = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;IU)"
+	authConfigPipeTimeout = 15 * time.Second // the server request itself can take 10 seconds
+)
 
 type ipcRequest struct {
 	Cmd      string `json:"cmd"` // status | connect | disconnect | set_server | diagnose
@@ -53,15 +56,15 @@ type diagItem struct {
 }
 
 type ipcResponse struct {
-	OK        bool              `json:"ok"`
-	Error     string            `json:"error,omitempty"`
-	ErrorCode string            `json:"error_code,omitempty"`
-	Status    *agentcore.Status `json:"status,omitempty"`
-	Diag      []diagItem        `json:"diag,omitempty"`
-	Update    *UpdateInfo       `json:"update,omitempty"`
-	Speed     *SpeedInfo        `json:"speed,omitempty"`
-	IPs       *IPInfo           `json:"ips,omitempty"`
-	Notice    *Notice           `json:"notice,omitempty"`
+	OK        bool                  `json:"ok"`
+	Error     string                `json:"error,omitempty"`
+	ErrorCode string                `json:"error_code,omitempty"`
+	Status    *agentcore.Status     `json:"status,omitempty"`
+	Diag      []diagItem            `json:"diag,omitempty"`
+	Update    *UpdateInfo           `json:"update,omitempty"`
+	Speed     *SpeedInfo            `json:"speed,omitempty"`
+	IPs       *IPInfo               `json:"ips,omitempty"`
+	Notice    *Notice               `json:"notice,omitempty"`
 	Auth      *clientapi.AuthConfig `json:"auth,omitempty"`
 	LogRef    string                `json:"log_ref,omitempty"`
 	Challenge *clientapi.Challenge  `json:"challenge,omitempty"`
@@ -167,6 +170,9 @@ func (a *agentService) handle(req ipcRequest) ipcResponse {
 		cancel()
 		if clientapi.HasStatus(err, 404) {
 			cfg, err = clientapi.AuthConfig{Local: true}, nil // older server
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			return ipcResponse{Error: "The server didn't respond while checking sign-in options. Check your connection and try again."}
 		}
 		if err != nil {
 			return errResp(err)
@@ -276,5 +282,8 @@ func pipeCall(req ipcRequest, timeout time.Duration) (ipcResponse, error) {
 	}
 	var resp ipcResponse
 	err = json.NewDecoder(c).Decode(&resp)
+	if req.Cmd == "auth_config" && errors.Is(err, context.DeadlineExceeded) {
+		return ipcResponse{Error: "Checking sign-in options timed out. Try again."}, nil
+	}
 	return resp, err
 }
