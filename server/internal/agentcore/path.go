@@ -122,7 +122,7 @@ func (e *Engine) handlePathFailure(ctx context.Context, s *Session) {
 	now := e.o.Now()
 	e.mu.Lock()
 	repairedAt := e.pathRepairedAt
-	e.setState(StateReconnecting, "Checking the VPN path…")
+	e.setState(StateReconnecting, "Checking VPN connection…")
 	localRepair := repairedAt.IsZero() || (len(s.Placement.Alternates) == 0 && now.Sub(repairedAt) >= 30*time.Second)
 	if localRepair {
 		e.pathRepairedAt = now

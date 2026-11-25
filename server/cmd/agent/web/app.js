@@ -247,10 +247,6 @@ function healthIssue(st) {
     return { kind: "bad", title: "Your connection keeps dropping",
       text: "It dropped " + st.drops_recent + " times in the last 15 minutes. Calls and downloads may be interrupted. " + local };
   }
-  if (hist.length >= 10 && st.loss_pct >= 5) {
-    return { kind: "bad", title: "Some of your traffic is getting lost",
-      text: Math.round(st.loss_pct) + "% of pings to your VPN gateway got no reply, so things may load slowly or calls may cut out. " + local };
-  }
   if (wifi && n.signal_pct && n.signal_pct < 40) {
     return { kind: "warn", title: "Weak Wi-Fi signal",
       text: "Your Wi-Fi signal is " + n.signal_pct + "%. Move closer to the router or use a network cable for a steadier connection." };
@@ -276,7 +272,7 @@ function renderHealth(st, rec) {
 }
 
 const vpnRecovery = new Map([
-  ["checking", ["Checking the VPN path…", "Testing the connection through your VPN gateway."]],
+  ["checking", ["Checking VPN connection…", "No action needed right now."]],
   ["waiting_for_network", ["Waiting for a network", "Connect to Wi-Fi or Ethernet to continue."]],
   ["repairing", ["Repairing the VPN…", "Restarting the tunnel on the current gateway."]],
   ["switching_gateway", ["Switching VPN gateways…", "Trying another VPN gateway."]],
@@ -285,20 +281,22 @@ const vpnRecovery = new Map([
 ]);
 const vpnRecoveryMessages = new Map([...vpnRecovery].map(([phase, [title]]) => [title, phase]));
 
+vpnRecoveryMessages.set("Checking the VPN path…", "checking"); // Older agent services.
+
 function recoveryStatus(st) {
   if (!st.office_mode) {
     const phase = vpnRecovery.has(st.vpn_phase) ? st.vpn_phase :
       st.state === "reconnecting" ? vpnRecoveryMessages.get(st.message) : null;
     if (phase) {
       const [title, subtitle] = vpnRecovery.get(phase);
-      return { title, subtitle, showGrace: phase === "waiting_for_network" };
+      return { title, subtitle };
     }
   }
   if (st.state !== "reconnecting") return null;
   if (!st.office_mode && (st.message || "").startsWith("Moving to gateway ")) {
     return { title: st.message, subtitle: "The VPN connection may be interrupted while it moves." };
   }
-  return { title: "Reconnecting…", subtitle: "Trying to restore the VPN connection.", showGrace: !st.office_mode };
+  return { title: "Reconnecting…", subtitle: "Trying to restore the VPN connection." };
 }
 
 function renderStatus(st) {
@@ -338,9 +336,6 @@ function renderStatus(st) {
   }
   $("st-disconnect").classList.toggle("hidden", !!(other && !owner.can_disconnect));
 
-  const showGrace = rec && recovery.showGrace && st.state === "reconnecting" && st.grace_left_sec > 0;
-  $("st-grace").classList.toggle("hidden", !showGrace);
-  $("st-grace-left").textContent = showGrace ? dur(st.grace_left_sec) + " left" : "";
   renderUpdateNotice();
 
   // Speed
@@ -357,7 +352,11 @@ function renderStatus(st) {
   const lat = (st.latency_history || []).filter((v) => v >= 0);
   $("m-lat").textContent = st.latency_ms && !rec ? st.latency_ms + " ms" : "–";
   $("m-jit").textContent = lat.length > 1 ? "±" + st.jitter_ms + " ms jitter" : "";
-  $("m-loss").textContent = (st.latency_history || []).length ? (st.loss_pct > 0 && st.loss_pct < 10 ? st.loss_pct.toFixed(1) : Math.round(st.loss_pct)) + "%" : "–";
+  const loss = $("m-loss");
+  const hasLoss = (st.latency_history || []).length > 0 && Number.isFinite(st.loss_pct);
+  loss.textContent = hasLoss ? (st.loss_pct > 0 && st.loss_pct < 10 ? st.loss_pct.toFixed(1) : Math.round(st.loss_pct)) + "%" : "–";
+  loss.classList.toggle("loss-warn", hasLoss && st.loss_pct >= 3 && st.loss_pct < 10);
+  loss.classList.toggle("loss-bad", hasLoss && st.loss_pct >= 10);
   const q = rec ? ["Checking", "neutral"] : quality(st);
   $("q-pill").textContent = q[0];
   $("q-pill").className = "pill " + q[1];

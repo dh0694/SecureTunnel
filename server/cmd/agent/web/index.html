@@ -88,12 +88,7 @@
       <div id="st-health" class="health hidden" role="status">
         <div class="strong" id="st-health-title"></div>
         <p id="st-health-text"></p>
-        <div class="health-foot"><button class="btn sm" id="st-health-check" type="button">Run connection checks</button><span class="muted small">IT also sees this on their side.</span></div>
-      </div>
-
-      <div id="st-grace" class="card hidden">
-        <p class="muted small">You may need to sign in again if the VPN stays offline.</p>
-        <div class="row"><span class="muted">Estimated reconnect window</span><span id="st-grace-left"></span></div>
+        <div class="health-foot"><button class="btn sm" id="st-health-check" type="button">Run connection checks</button></div>
       </div>
 
       <div class="card conn" id="st-conn">
@@ -104,7 +99,7 @@
           <div id="m-lat-box" title="Round trip through the tunnel to your gateway; under 80 ms is typical. Jitter is how much it varies: high jitter makes calls choppy."><div class="k">Latency</div><div class="v" id="m-lat">–</div><div class="sub" id="m-jit"></div></div>
           <div title="Downloaded through the VPN since you connected"><div class="k">Downloaded</div><div class="v" id="conn-down">–</div></div>
           <div title="Uploaded through the VPN since you connected"><div class="k">Uploaded</div><div class="v" id="conn-up">–</div></div>
-          <div title="Pings to your gateway in the last 5 minutes that got no reply"><div class="k">Loss</div><div class="v" id="m-loss">–</div></div>
+          <div title="Percentage of recent connection checks that received no reply"><div class="k">Loss</div><div class="v" id="m-loss">–</div></div>
         </div>
         <div class="conn-mini">
           <div id="sp-total" title="Blue: receiving. Green: sending."><div class="cap">Usage · last 60 s</div>
