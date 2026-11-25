@@ -245,7 +245,7 @@ function healthIssue(st) {
     : "Check your internet connection, or restart your modem or router.";
   if ((st.drops_recent || 0) >= 3) {
     return { kind: "bad", title: "Your connection keeps dropping",
-      text: "It dropped " + st.drops_recent + " times in the last 15 minutes. Your apps reconnect each time, but calls and downloads may stop. " + local };
+      text: "It dropped " + st.drops_recent + " times in the last 15 minutes. Calls and downloads may be interrupted. " + local };
   }
   if (hist.length >= 10 && st.loss_pct >= 5) {
     return { kind: "bad", title: "Some of your traffic is getting lost",
@@ -275,6 +275,32 @@ function renderHealth(st, rec) {
   $("st-health-text").textContent = issue.text;
 }
 
+const vpnRecovery = new Map([
+  ["checking", ["Checking the VPN path…", "Testing the connection through your VPN gateway."]],
+  ["waiting_for_network", ["Waiting for a network", "Connect to Wi-Fi or Ethernet to continue."]],
+  ["repairing", ["Repairing the VPN…", "Restarting the tunnel on the current gateway."]],
+  ["switching_gateway", ["Switching VPN gateways…", "Trying another VPN gateway."]],
+  ["starting_tunnel", ["Starting the tunnel…", "Setting up the VPN connection."]],
+  ["network_change", ["Connecting…", "Checking the VPN after a network change."]],
+]);
+const vpnRecoveryMessages = new Map([...vpnRecovery].map(([phase, [title]]) => [title, phase]));
+
+function recoveryStatus(st) {
+  if (!st.office_mode) {
+    const phase = vpnRecovery.has(st.vpn_phase) ? st.vpn_phase :
+      st.state === "reconnecting" ? vpnRecoveryMessages.get(st.message) : null;
+    if (phase) {
+      const [title, subtitle] = vpnRecovery.get(phase);
+      return { title, subtitle, showGrace: phase === "waiting_for_network" };
+    }
+  }
+  if (st.state !== "reconnecting") return null;
+  if (!st.office_mode && (st.message || "").startsWith("Moving to gateway ")) {
+    return { title: st.message, subtitle: "The VPN connection may be interrupted while it moves." };
+  }
+  return { title: "Reconnecting…", subtitle: "Trying to restore the VPN connection.", showGrace: !st.office_mode };
+}
+
 function renderStatus(st) {
   const t = st.device_trust;
   // Certificates only: join type and compliance are Entra's job (Conditional Access).
@@ -284,13 +310,12 @@ function renderStatus(st) {
   $("st-trust-wrap").classList.toggle("hidden", !certs.length);
   $("st-trust").textContent = certs.join(" · ");
   show("status");
-  const rec = st.state === "reconnecting";
+  const recovery = recoveryStatus(st);
+  const rec = !!recovery;
   $("st-dot").className = "dot " + (rec ? "warn spin" : "ok");
   $("st-dot").querySelector("use").setAttribute("href", rec ? "#i-refresh" : "#i-lock");
-  const switching = rec && st.message === "Connecting…"; // just after a network change
-  $("st-title").textContent = switching ? "Connecting…" : rec ? "Reconnecting…" : "Connected";
-  $("st-sub").textContent = switching ? "Picking up your new network. Your apps carry on in a moment."
-    : rec ? "Trying to reach the gateway." : "Your connection is private.";
+  $("st-title").textContent = rec ? recovery.title : "Connected";
+  $("st-sub").textContent = rec ? recovery.subtitle : "VPN tunnel is active.";
   // Office mode: signed in, but traffic goes straight out the office network.
   const office = !!st.office_mode && !rec;
   $("st-office").classList.toggle("hidden", !office);
@@ -300,8 +325,8 @@ function renderStatus(st) {
     $("st-dot").querySelector("use").setAttribute("href", "#i-building");
     $("st-title").textContent = "Connected · office mode";
     $("st-sub").textContent = "Signed in. The VPN is on standby.";
-    $("st-office-text").textContent = "Your traffic goes straight through the office network, not the VPN" +
-      (st.trusted_reason ? " (detected by " + st.trusted_reason + ")" : "") + ". The VPN turns back on by itself when you leave.";
+    $("st-office-text").textContent = "Your traffic goes through the office network" +
+      (st.trusted_reason ? " (detected by " + st.trusted_reason + ")" : "") + ".";
   }
 
   // Another Windows user connected this tunnel (shared PC or user switching).
@@ -310,16 +335,12 @@ function renderStatus(st) {
   if (other) {
     $("st-owner").textContent = "Connected by " + owner.name + ", another Windows user on this PC." +
       (owner.can_disconnect ? "" : " Only they can disconnect it.");
-    $("st-sub").textContent = "Shared with " + owner.name + ".";
   }
   $("st-disconnect").classList.toggle("hidden", !!(other && !owner.can_disconnect));
 
-  $("st-grace").classList.toggle("hidden", !rec || switching); // a network switch isn't worth a countdown
-  if (rec) {
-    const left = st.grace_left_sec || 0;
-    $("st-grace-left").textContent = dur(left) + " left";
-    $("st-grace-bar").style.width = Math.max(2, Math.min(100, (left / 900) * 100)) + "%";
-  }
+  const showGrace = rec && recovery.showGrace && st.state === "reconnecting" && st.grace_left_sec > 0;
+  $("st-grace").classList.toggle("hidden", !showGrace);
+  $("st-grace-left").textContent = showGrace ? dur(st.grace_left_sec) + " left" : "";
   renderUpdateNotice();
 
   // Speed
@@ -337,7 +358,7 @@ function renderStatus(st) {
   $("m-lat").textContent = st.latency_ms && !rec ? st.latency_ms + " ms" : "–";
   $("m-jit").textContent = lat.length > 1 ? "±" + st.jitter_ms + " ms jitter" : "";
   $("m-loss").textContent = (st.latency_history || []).length ? (st.loss_pct > 0 && st.loss_pct < 10 ? st.loss_pct.toFixed(1) : Math.round(st.loss_pct)) + "%" : "–";
-  const q = quality(st);
+  const q = rec ? ["Checking", "neutral"] : quality(st);
   $("q-pill").textContent = q[0];
   $("q-pill").className = "pill " + q[1];
   drawLatency(st.latency_history || []);

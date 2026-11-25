@@ -120,6 +120,7 @@ type Store interface {
 type Status struct {
 	State            State     `json:"state"`
 	Message          string    `json:"message"`
+	VPNPhase         string    `json:"vpn_phase,omitempty"`
 	Server           string    `json:"server"`
 	ServerInUse      string    `json:"server_in_use,omitempty"` // the address answering (a backup when the main one is down)
 	ServerLocked     bool      `json:"server_locked"`
@@ -252,6 +253,7 @@ type Engine struct {
 	sess           *Session
 	state          State
 	message        string
+	vpnPhase       string
 	latency        time.Duration
 	lastHB         time.Time
 	lastRecover    time.Time
@@ -569,6 +571,7 @@ func (e *Engine) moveGateway(ctx context.Context, s *Session, api API, target st
 	from := s.Placement.Gateway.ID
 	e.mu.Lock()
 	e.setState(StateReconnecting, "Moving to gateway "+p.Gateway.ID+"…")
+	e.vpnPhase = vpnSwitchingGateway
 	e.mu.Unlock()
 	_ = e.tunnelDown()
 	e.applyMove(s, p)
@@ -610,7 +613,7 @@ func (e *Engine) Status() Status {
 		inUse = a.Active()
 	}
 	st := Status{
-		State: e.state, Message: e.message, Server: e.server, ServerInUse: inUse, ServerLocked: e.serverLocked,
+		State: e.state, Message: e.message, VPNPhase: e.vpnPhase, Server: e.server, ServerInUse: inUse, ServerLocked: e.serverLocked,
 		LastHeartbeat: e.lastHB, LatencyMs: int(e.latency / time.Millisecond),
 		OnTrustedNetwork: e.onTrusted, TrustedReason: e.trustedWhy, OfficeMode: e.standby && e.sess != nil, Version: e.o.Version, TrustMode: trust, Network: netInfo,
 		LatencyHistory: append([]int(nil), e.hbHist...),
@@ -681,6 +684,9 @@ func (e *Engine) setState(s State, msg string) {
 		e.drops = e.drops[cut:]
 	}
 	e.state, e.message = s, msg
+	if s != StateReconnecting {
+		e.vpnPhase = ""
+	}
 }
 
 // recentDrops counts connection drops in the last 15 minutes (caller holds mu).
@@ -1173,8 +1179,26 @@ func (e *Engine) Tick(ctx context.Context) time.Duration {
 	checkPath := roaming || e.pathMisses >= pathFailureThreshold
 	e.mu.Unlock()
 	path := pathUnknown
-	if checkPath && route {
+	switch {
+	case e.standby || s.Device:
+		e.setVPNPhase("")
+	case !route:
+		e.setVPNPhase(vpnWaitingForNetwork)
+		path = e.checkTunnelPath(ctx, s, 1)
+	case checkPath:
+		e.setVPNPhase(vpnChecking)
 		path = e.checkTunnelPath(ctx, s, pathFailureThreshold)
+	default:
+		e.mu.Lock()
+		if e.vpnPhase == vpnWaitingForNetwork {
+			e.vpnPhase = vpnChecking
+		}
+		e.mu.Unlock()
+	}
+	if path == pathWorking && (s.Placement.ExpiresAt.IsZero() || e.o.Now().Before(s.Placement.ExpiresAt)) {
+		e.mu.Lock()
+		e.setState(StateConnected, "")
+		e.mu.Unlock()
 	}
 	diag := e.diagnostics()
 	e.lifecycleMu.Unlock()
@@ -1224,7 +1248,7 @@ func (e *Engine) Tick(ctx context.Context) time.Duration {
 			e.latency = rtt
 			e.recordHB(int(rtt / time.Millisecond))
 		}
-		if tunnelReady && path != pathDown {
+		if tunnelReady && path != pathDown && (route || path == pathWorking || e.standby) {
 			e.setState(StateConnected, "")
 		}
 		e.mu.Unlock()
@@ -1233,7 +1257,7 @@ func (e *Engine) Tick(ctx context.Context) time.Duration {
 			e.handlePathFailure(ctx, s)
 			return e.o.RetryEvery
 		}
-		if !tunnelReady {
+		if !tunnelReady || !route {
 			return e.o.RetryEvery
 		}
 		return e.heartbeatEvery(s)
@@ -1324,10 +1348,11 @@ func (e *Engine) recover(ctx context.Context, s *Session) {
 	e.mu.Lock()
 	api := e.api
 	e.mu.Unlock()
+	e.setVPNPhase(vpnChecking)
 	e.o.Log.Warn("gateway not answering; checking the control server directly", "gateway", s.Placement.Gateway.ID)
 	_ = e.tunnelDown()
 	e.tunnelPending = true
-	restore := func() { e.ensureTunnel(s) }
+	restore := func() { e.repairTunnel(s) }
 
 	hctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	observed, _, sent, err := e.heartbeat(hctx, api, s, nil)
@@ -1350,6 +1375,7 @@ func (e *Engine) recover(ctx context.Context, s *Session) {
 		return
 	}
 
+	e.setVPNPhase(vpnSwitchingGateway)
 	fctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	p, err := api.Failover(fctx, s.ID, s.ResumeToken, s.BootID)
 	cancel()

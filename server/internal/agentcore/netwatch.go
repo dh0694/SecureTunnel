@@ -34,6 +34,12 @@ func (e *Engine) netCheck(ctx context.Context, last *string, changedAt *time.Tim
 	fp := e.o.NetFingerprint()
 	if fp != *last {
 		*last, *changedAt = fp, now // (re)start the settle wait on every change
+		e.mu.Lock()
+		if e.sess != nil && !e.sess.Device && !e.standby && !e.busy {
+			e.vpnPhase = vpnChecking
+			e.netChangedAt = e.o.Now()
+		}
+		e.mu.Unlock()
 		return false
 	}
 	if changedAt.IsZero() || now.Sub(*changedAt) < netSettle {
@@ -41,7 +47,8 @@ func (e *Engine) netCheck(ctx context.Context, last *string, changedAt *time.Tim
 	}
 	*changedAt = time.Time{}
 	if fp == "" || fp == "|" {
-		return false // no network: nothing to check until one comes back
+		e.Kick() // check whether Windows still has a usable route
+		return false
 	}
 	// Connections to the server opened on the old network may hang: drop them.
 	if e.o.OnTunnelChange != nil {

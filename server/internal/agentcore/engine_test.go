@@ -682,7 +682,9 @@ func TestRoamingKeepsWorkingTunnelWhenHeartbeatFails(t *testing.T) {
 	r := newRig(t)
 	r.connect(t)
 	r.e.sess.Placement.Gateway.InsideIP = "10.200.0.1"
+	var probePhase string
 	r.e.o.Ping = func(_ context.Context, source, ip netip.Addr, _ time.Duration) (time.Duration, error) {
+		probePhase = r.e.Status().VPNPhase
 		if source.String() != "10.200.0.2" || ip.String() != "10.200.0.1" {
 			t.Errorf("unexpected probe: %s to %s", source, ip)
 		}
@@ -694,6 +696,9 @@ func TestRoamingKeepsWorkingTunnelWhenHeartbeatFails(t *testing.T) {
 	r.advance(16 * time.Minute)
 	r.e.Kick()
 	r.e.Tick(context.Background())
+	if probePhase != vpnChecking || r.e.Status().VPNPhase != "" {
+		t.Fatalf("banner phase while probing = %q, after reply = %q", probePhase, r.e.Status().VPNPhase)
+	}
 	if r.e.Status().State != StateConnected || r.tun.ups != ups || r.api.failovers != 0 {
 		t.Fatal("a working tunnel was disrupted after a missed heartbeat")
 	}
@@ -721,6 +726,9 @@ func TestRoamingWaitsForRouteAndRepairsSameAssignment(t *testing.T) {
 	r.advance(5 * time.Second)
 	r.e.Kick()
 	r.e.Tick(context.Background())
+	if r.e.Status().VPNPhase != vpnWaitingForNetwork {
+		t.Fatalf("banner phase without physical route = %q", r.e.Status().VPNPhase)
+	}
 	if r.tun.ups != ups || r.api.failovers != 0 {
 		t.Fatal("changed the tunnel before a physical route was available")
 	}

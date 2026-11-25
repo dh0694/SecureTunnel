@@ -12,6 +12,19 @@ const (
 	roamProbeInterval    = 500 * time.Millisecond
 )
 
+const (
+	vpnChecking          = "checking"
+	vpnWaitingForNetwork = "waiting_for_network"
+	vpnRepairing         = "repairing"
+	vpnSwitchingGateway  = "switching_gateway"
+)
+
+func (e *Engine) setVPNPhase(phase string) {
+	e.mu.Lock()
+	e.vpnPhase = phase
+	e.mu.Unlock()
+}
+
 type pathState uint8
 
 const (
@@ -99,6 +112,7 @@ func tunnelProbeAddresses(s *Session) (source, destination netip.Addr) {
 }
 
 func (e *Engine) repairTunnel(s *Session) {
+	e.setVPNPhase(vpnRepairing)
 	e.o.Log.Info("repairing the local tunnel", "gateway", s.Placement.Gateway.ID)
 	e.tunnelPending = true
 	e.ensureTunnel(s) // Up replaces the local adapter using the current assignment.
